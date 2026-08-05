@@ -1,5 +1,4 @@
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:network_info_plus/network_info_plus.dart';
 import '../models/app_settings.dart';
 
 class NetworkManager {
@@ -7,20 +6,6 @@ class NetworkManager {
   NetworkManager._internal();
 
   final Connectivity _connectivity = Connectivity();
-  final NetworkInfo _networkInfo = NetworkInfo();
-
-  Future<String?> getCurrentWifiSsid() async {
-    try {
-      final ssid = await _networkInfo.getWifiName();
-      if (ssid != null) {
-        // Strip extra quotes if present (e.g. "MySSID" -> MySSID)
-        return ssid.replaceAll('"', '').trim();
-      }
-    } catch (e) {
-      // Ignored
-    }
-    return null;
-  }
 
   Future<List<ConnectivityResult>> getCurrentConnectivity() async {
     try {
@@ -48,38 +33,17 @@ class NetworkManager {
       };
     }
 
-    switch (settings.networkMode) {
-      case NetworkRestrictionMode.selectedWifi:
-        if (!isWifi) {
-          return {
-            'allowed': false,
-            'reason': 'İndirme yalnızca seçili Wi-Fi ağında yapılabilir.',
-          };
-        }
-        final currentSsid = await getCurrentWifiSsid();
-        if (settings.allowedWifiSsid.isNotEmpty &&
-            currentSsid != null &&
-            currentSsid != settings.allowedWifiSsid) {
-          return {
-            'allowed': false,
-            'reason':
-                'Geçerli Wi-Fi ($currentSsid), izin verilen ağ (${settings.allowedWifiSsid}) ile eşleşmiyor.',
-          };
-        }
-        return {'allowed': true, 'reason': ''};
-
-      case NetworkRestrictionMode.anyWifi:
-        if (!isWifi) {
-          return {
-            'allowed': false,
-            'reason':
-                'Ayarlarınızda "Sadece Wi-Fi ile İndir" aktif. Mobil veriyle indirmek için Ayarlar\'dan Wi-Fi kısıtlamasını kapatın.',
-          };
-        }
-        return {'allowed': true, 'reason': ''};
-
-      case NetworkRestrictionMode.allNetworks:
-        return {'allowed': true, 'reason': ''};
+    if (settings.networkMode == NetworkRestrictionMode.anyWifi) {
+      if (!isWifi) {
+        return {
+          'allowed': false,
+          'reason':
+              'Ayarlarınızda "Sadece Wi-Fi ile İndir" aktif. Mobil veriyle indirmek için Ayarlar\'dan Wi-Fi kısıtlamasını kapatın.',
+        };
+      }
+      return {'allowed': true, 'reason': ''};
     }
+
+    return {'allowed': true, 'reason': ''};
   }
 }

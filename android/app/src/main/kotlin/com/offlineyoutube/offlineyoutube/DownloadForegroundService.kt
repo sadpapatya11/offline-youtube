@@ -18,6 +18,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 
 class DownloadForegroundService : Service() {
 
@@ -25,7 +26,7 @@ class DownloadForegroundService : Service() {
         private const val TAG = "DownloadForegroundService"
         const val CHANNEL_ID = "offlineyoutube_downloads"
         const val CHANNEL_NAME = "İndirme İşlemleri"
-        const val NOTIFICATION_ID = 1001
+        const val SERVICE_NOTIFICATION_ID = 999
 
         const val ACTION_START = "com.offlineyoutube.START_DOWNLOAD"
         const val ACTION_PAUSE = "com.offlineyoutube.PAUSE_DOWNLOAD"
@@ -39,6 +40,10 @@ class DownloadForegroundService : Service() {
 
         // Event listener for Flutter
         var eventCallback: ((Map<String, Any?>) -> Unit)? = null
+
+        fun getNotificationId(taskId: String): Int {
+            return (abs(taskId.hashCode()) % 100000) + 1000
+        }
     }
 
     private val serviceJob = Job()
@@ -67,7 +72,17 @@ class DownloadForegroundService : Service() {
                 taskTitles[taskId] = title
                 taskUrls[taskId] = url
                 taskOutputs[taskId] = outputPath
-                startForeground(NOTIFICATION_ID, buildNotification(title, "İndirme başlatılıyor...", 0, true))
+                
+                // Start foreground service with persistent summary
+                startForeground(
+                    SERVICE_NOTIFICATION_ID,
+                    buildNotification(
+                        title = "Offline YouTube",
+                        content = "İndirmeler yürütülüyor...",
+                        progress = 0,
+                        indeterminate = true
+                    )
+                )
                 startDownloadTask(taskId, url, outputPath, title)
             }
             ACTION_PAUSE -> {
@@ -83,7 +98,9 @@ class DownloadForegroundService : Service() {
 
     private fun startDownloadTask(taskId: String, url: String, outputPath: String, title: String) {
         val outputDir = if (outputPath.isNotEmpty()) File(outputPath) else File(getExternalFilesDir(null), "downloads")
-        
+        val notifId = getNotificationId(taskId)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
         val job = serviceScope.launch {
             emitEvent(mapOf(
                 "taskId" to taskId,
@@ -103,8 +120,7 @@ class DownloadForegroundService : Service() {
                         progress = progress.toInt(),
                         indeterminate = false
                     )
-                    val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                    manager.notify(NOTIFICATION_ID, notification)
+                    manager.notify(notifId, notification)
 
                     emitEvent(mapOf(
                         "taskId" to taskId,
@@ -116,6 +132,7 @@ class DownloadForegroundService : Service() {
                 },
                 onComplete = { result ->
                     activeDownloadJobs.remove(taskId)
+                    manager.cancel(notifId)
                     emitEvent(mapOf(
                         "taskId" to taskId,
                         "type" to "completed",
@@ -125,6 +142,7 @@ class DownloadForegroundService : Service() {
                 },
                 onError = { e ->
                     activeDownloadJobs.remove(taskId)
+                    manager.cancel(notifId)
                     emitEvent(mapOf(
                         "taskId" to taskId,
                         "type" to "error",
@@ -138,6 +156,10 @@ class DownloadForegroundService : Service() {
     }
 
     private fun pauseDownloadTask(taskId: String) {
+        val notifId = getNotificationId(taskId)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(notifId)
+
         activeDownloadJobs[taskId]?.cancel()
         activeDownloadJobs.remove(taskId)
         YtDlpNativeManager.stopDownload(taskId)
@@ -149,6 +171,10 @@ class DownloadForegroundService : Service() {
     }
 
     private fun cancelDownloadTask(taskId: String) {
+        val notifId = getNotificationId(taskId)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.cancel(notifId)
+
         activeDownloadJobs[taskId]?.cancel()
         activeDownloadJobs.remove(taskId)
         YtDlpNativeManager.stopDownload(taskId)

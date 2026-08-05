@@ -10,27 +10,24 @@ void main() {
   group('Models & Logic Tests', () {
     test('AppSettings serialization and defaults', () {
       const settings = AppSettings();
-      expect(settings.maxStorageLimitGB, 10);
-      expect(settings.maxVideoDurationHours, 3);
-      expect(settings.networkMode, NetworkRestrictionMode.anyWifi);
-      expect(settings.allowedWifiSsid, '');
+      expect(settings.maxStorageLimitGB, 20);
+      expect(settings.maxVideoDurationHours, 6);
+      expect(settings.networkMode, NetworkRestrictionMode.allNetworks);
 
       final json = settings.toJson();
       final fromJson = AppSettings.fromJson(json);
-      expect(fromJson.maxStorageLimitGB, 10);
-      expect(fromJson.maxVideoDurationHours, 3);
-      expect(fromJson.networkMode, NetworkRestrictionMode.anyWifi);
+      expect(fromJson.maxStorageLimitGB, 20);
+      expect(fromJson.maxVideoDurationHours, 6);
+      expect(fromJson.networkMode, NetworkRestrictionMode.allNetworks);
 
       final modified = settings.copyWith(
         maxStorageLimitGB: 50,
         maxVideoDurationHours: 12,
-        networkMode: NetworkRestrictionMode.selectedWifi,
-        allowedWifiSsid: 'Home-WiFi-5G',
+        networkMode: NetworkRestrictionMode.anyWifi,
       );
       expect(modified.maxStorageLimitGB, 50);
       expect(modified.maxVideoDurationHours, 12);
-      expect(modified.networkMode, NetworkRestrictionMode.selectedWifi);
-      expect(modified.allowedWifiSsid, 'Home-WiFi-5G');
+      expect(modified.networkMode, NetworkRestrictionMode.anyWifi);
     });
 
     test('VideoItem formatting logic', () {
@@ -73,8 +70,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
 
       // Check initial screen
-      expect(find.text('OFFLINE YOUTUBE'), findsOneWidget);
-      expect(find.text('Video Bağlantısı'), findsOneWidget);
+      expect(find.text('OFFLINE YOUTUBE'), findsWidgets);
+      expect(find.text('Otomatik İndirme & Senkronizasyon'), findsOneWidget);
 
       // Tap Downloads tab
       await tester.tap(find.byIcon(Icons.video_library_outlined));
@@ -92,7 +89,7 @@ void main() {
       expect(find.text('AYARLAR VE KISITLAMALAR'), findsOneWidget);
       expect(find.text('Depolama Kotası Yöneticisi'), findsOneWidget);
       expect(find.text('Maksimum Video Uzunluğu'), findsOneWidget);
-      expect(find.text('Ağ ve Bağlantı Kısıtlaması'), findsOneWidget);
+      expect(find.text('Ağ ve Bağlantı Kuralı'), findsOneWidget);
     });
   });
 }

@@ -49,6 +49,19 @@ class NativeBridge {
     }
   }
 
+  Future<List<Map<String, dynamic>>> fetchPlaylistEntries(String url) async {
+    try {
+      final result = await _methodChannel.invokeListMethod<dynamic>(
+        'fetchPlaylistEntries',
+        {'url': url},
+      );
+      if (result == null) return [];
+      return result.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   Future<bool> startDownload({
     required String taskId,
     required String url,

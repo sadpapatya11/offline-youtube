@@ -13,8 +13,7 @@ class SettingsProvider extends ChangeNotifier {
   bool get hasStoragePermission => _hasStoragePermission;
   bool get isLoading => _isLoading;
   bool get isOnlyWifiEnabled =>
-      _settings.networkMode == NetworkRestrictionMode.anyWifi ||
-      _settings.networkMode == NetworkRestrictionMode.selectedWifi;
+      _settings.networkMode == NetworkRestrictionMode.anyWifi;
 
   SettingsProvider() {
     _init();
@@ -64,12 +63,6 @@ class SettingsProvider extends ChangeNotifier {
         ? NetworkRestrictionMode.anyWifi
         : NetworkRestrictionMode.allNetworks;
     await updateNetworkMode(mode);
-  }
-
-  Future<void> updateAllowedSsid(String ssid) async {
-    _settings = _settings.copyWith(allowedWifiSsid: ssid);
-    await SettingsManager.instance.saveSettings(_settings);
-    notifyListeners();
   }
 
   Future<void> toggleAutoDownload(bool enabled) async {

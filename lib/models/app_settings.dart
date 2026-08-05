@@ -1,6 +1,5 @@
 enum NetworkRestrictionMode {
-  selectedWifi, // Sadece Seçili Wi-Fi (SSID)
-  anyWifi, // Herhangi bir Wi-Fi
+  anyWifi, // Sadece Wi-Fi
   allNetworks, // Mobil Veri ve Wi-Fi (Tüm Ağlar)
 }
 
@@ -8,7 +7,6 @@ class AppSettings {
   final int maxStorageLimitGB; // Min 1 GB
   final int maxVideoDurationHours; // Min 1 Saat
   final NetworkRestrictionMode networkMode;
-  final String allowedWifiSsid;
   final String customDownloadPath;
   final bool autoDownloadOnPaste;
   final bool playlistReverseOrder;
@@ -18,7 +16,6 @@ class AppSettings {
     this.maxStorageLimitGB = 20,
     this.maxVideoDurationHours = 6,
     this.networkMode = NetworkRestrictionMode.allNetworks, // Varsayılan tüm ağlar (mobil veri + wifi)
-    this.allowedWifiSsid = '',
     this.customDownloadPath = '/storage/emulated/0/Download/.offlineyoutube',
     this.autoDownloadOnPaste = true,
     this.playlistReverseOrder = true,
@@ -29,7 +26,6 @@ class AppSettings {
     int? maxStorageLimitGB,
     int? maxVideoDurationHours,
     NetworkRestrictionMode? networkMode,
-    String? allowedWifiSsid,
     String? customDownloadPath,
     bool? autoDownloadOnPaste,
     bool? playlistReverseOrder,
@@ -39,7 +35,6 @@ class AppSettings {
       maxStorageLimitGB: maxStorageLimitGB ?? this.maxStorageLimitGB,
       maxVideoDurationHours: maxVideoDurationHours ?? this.maxVideoDurationHours,
       networkMode: networkMode ?? this.networkMode,
-      allowedWifiSsid: allowedWifiSsid ?? this.allowedWifiSsid,
       customDownloadPath: customDownloadPath ?? this.customDownloadPath,
       autoDownloadOnPaste: autoDownloadOnPaste ?? this.autoDownloadOnPaste,
       playlistReverseOrder: playlistReverseOrder ?? this.playlistReverseOrder,
@@ -51,7 +46,6 @@ class AppSettings {
         'maxStorageLimitGB': maxStorageLimitGB,
         'maxVideoDurationHours': maxVideoDurationHours,
         'networkMode': networkMode.index,
-        'allowedWifiSsid': allowedWifiSsid,
         'customDownloadPath': customDownloadPath,
         'autoDownloadOnPaste': autoDownloadOnPaste,
         'playlistReverseOrder': playlistReverseOrder,
@@ -62,8 +56,7 @@ class AppSettings {
         maxStorageLimitGB: json['maxStorageLimitGB'] as int? ?? 20,
         maxVideoDurationHours: json['maxVideoDurationHours'] as int? ?? 6,
         networkMode: NetworkRestrictionMode.values[
-            (json['networkMode'] as int? ?? 2).clamp(0, NetworkRestrictionMode.values.length - 1)],
-        allowedWifiSsid: json['allowedWifiSsid'] as String? ?? '',
+            (json['networkMode'] as int? ?? 1).clamp(0, NetworkRestrictionMode.values.length - 1)],
         customDownloadPath: json['customDownloadPath'] as String? ??
             '/storage/emulated/0/Download/.offlineyoutube',
         autoDownloadOnPaste: json['autoDownloadOnPaste'] as bool? ?? true,

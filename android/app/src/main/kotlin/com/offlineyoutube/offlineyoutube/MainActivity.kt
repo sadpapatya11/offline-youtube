@@ -80,6 +80,22 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                "fetchPlaylistEntries" -> {
+                    val url = call.argument<String>("url")
+                    if (url.isNullOrEmpty()) {
+                        result.error("INVALID_URL", "URL boş olamaz", null)
+                        return@setMethodCallHandler
+                    }
+                    activityScope.launch {
+                        try {
+                            val list = YtDlpNativeManager.fetchPlaylistEntries(url)
+                            result.success(list)
+                        } catch (e: Exception) {
+                            result.error("PLAYLIST_ERROR", e.message ?: "Oynatma listesi bilgisi alınamadı", null)
+                        }
+                    }
+                }
+
                 "startDownload" -> {
                     val taskId = call.argument<String>("taskId") ?: ""
                     val url = call.argument<String>("url") ?: ""

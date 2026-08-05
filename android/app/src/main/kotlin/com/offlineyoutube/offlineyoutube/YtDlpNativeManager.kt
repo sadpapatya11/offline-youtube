@@ -11,13 +11,15 @@ import com.yausername.ffmpeg.FFmpeg
 import com.yausername.aria2c.Aria2c
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 object YtDlpNativeManager {
     private const val TAG = "YtDlpNativeManager"
     private var isInitialized = false
-    private val activeTasks = ConcurrentHashMap<String, String>() // taskId -> processId or url
+    private val activeTasks = ConcurrentHashMap<String, String>() // taskId -> taskId
+    private val intentionallyStoppedTasks = ConcurrentHashMap.newKeySet<String>()
 
     fun init(context: Context) {
         if (isInitialized) return
@@ -53,11 +55,10 @@ object YtDlpNativeManager {
 
     suspend fun fetchMetadata(url: String): Map<String, Any?> = withContext(Dispatchers.IO) {
         try {
-            val isPlaylist = url.contains("list=") || url.contains("/playlist") || url.contains("/@") || url.contains("/channel/")
+            val isPlaylist = isPlaylistUrl(url)
             val request = YoutubeDLRequest(url).apply {
                 if (isPlaylist) {
                     addOption("--flat-playlist")
-                    addOption("--playlist-reverse")
                 } else {
                     addOption("--no-playlist")
                 }
@@ -82,6 +83,67 @@ object YtDlpNativeManager {
         }
     }
 
+    suspend fun fetchPlaylistEntries(url: String): List<Map<String, Any?>> = withContext(Dispatchers.IO) {
+        try {
+            val request = YoutubeDLRequest(url).apply {
+                addOption("--flat-playlist")
+                addOption("--dump-single-json")
+            }
+            val videoInfo: VideoInfo = YoutubeDL.getInstance().getInfo(request)
+            val entries = mutableListOf<Map<String, Any?>>()
+
+            // VideoInfo may contain raw JSON in response or entries
+            // Let's also parse via flat-playlist JSON dump if needed
+            val rawEntries = videoInfo.entries
+            if (rawEntries != null && rawEntries.isNotEmpty()) {
+                for (item in rawEntries) {
+                    val itemId = item.id ?: ""
+                    val itemUrl = if (itemId.isNotEmpty()) "https://www.youtube.com/watch?v=$itemId" else (item.url ?: "")
+                    entries.add(mapOf(
+                        "id" to itemId,
+                        "title" to (item.title ?: "Video"),
+                        "duration" to (item.duration ?: 0),
+                        "thumbnail" to (item.thumbnail ?: ""),
+                        "uploader" to (item.uploader ?: ""),
+                        "url" to itemUrl,
+                        "uploadDate" to (item.uploadDate ?: "")
+                    ))
+                }
+            } else {
+                // If single entry or flat playlist without entries array
+                entries.add(mapOf(
+                    "id" to (videoInfo.id ?: ""),
+                    "title" to (videoInfo.title ?: "Video"),
+                    "duration" to (videoInfo.duration ?: 0),
+                    "thumbnail" to (videoInfo.thumbnail ?: ""),
+                    "uploader" to (videoInfo.uploader ?: ""),
+                    "url" to url,
+                    "uploadDate" to (videoInfo.uploadDate ?: "")
+                ))
+            }
+
+            // Sort entries: En son yayınlanan video (newest upload date) en başta olacak şekilde
+            entries.sortWith(Comparator { a, b ->
+                val dateA = a["uploadDate"] as? String ?: ""
+                val dateB = b["uploadDate"] as? String ?: ""
+                if (dateA.isNotEmpty() && dateB.isNotEmpty()) {
+                    dateB.compareTo(dateA) // Descending: Newest first
+                } else {
+                    0
+                }
+            })
+
+            return@withContext entries
+        } catch (e: Exception) {
+            Log.e(TAG, "Fetch playlist entries failed for $url: ${e.message}", e)
+            throw e
+        }
+    }
+
+    fun isPlaylistUrl(url: String): Boolean {
+        return url.contains("list=") || url.contains("/playlist") || url.contains("/@") || url.contains("/channel/")
+    }
+
     fun startDownload(
         taskId: String,
         url: String,
@@ -101,21 +163,20 @@ object YtDlpNativeManager {
             }
 
             activeTasks[taskId] = taskId
-
-            val isPlaylist = url.contains("list=") || url.contains("/playlist") || url.contains("/@") || url.contains("/channel/")
+            intentionallyStoppedTasks.remove(taskId)
 
             val request = YoutubeDLRequest(url).apply {
                 addOption("-o", "${outputDir.absolutePath}/%(title)s.%(ext)s")
                 addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
                 addOption("--no-mtime")
                 addOption("--continue")
-                addOption("--ignore-errors") // Skip unavailable/private videos without failing the batch
-                if (isPlaylist) {
-                    addOption("--yes-playlist")
-                    addOption("--playlist-reverse") // Download newest / latest added items first
-                } else {
-                    addOption("--no-playlist")
-                }
+                addOption("--ignore-errors")
+                addOption("--no-playlist") // Her video tek tek bağımsız indirilir
+                // Anti-Ban & Doğal Video İzleme Akışı
+                addOption("--limit-rate", "3.5M") // ~3.5 MB/s doğal insan akış hızı
+                addOption("--sleep-interval", "2") // İstekler arası 2 saniye dinlenme
+                addOption("--retries", "10")
+                addOption("--fragment-retries", "10")
             }
 
             val response: YoutubeDLResponse = YoutubeDL.getInstance().execute(
@@ -130,6 +191,10 @@ object YtDlpNativeManager {
             onComplete(response.out ?: "İndirme Tamamlandı")
         } catch (e: Exception) {
             activeTasks.remove(taskId)
+            if (intentionallyStoppedTasks.remove(taskId)) {
+                Log.i(TAG, "Task $taskId was intentionally paused/stopped. Suppressing error callback.")
+                return
+            }
             Log.e(TAG, "Download error for task $taskId: ${e.message}", e)
             onError(e)
         }
@@ -137,9 +202,10 @@ object YtDlpNativeManager {
 
     fun stopDownload(taskId: String) {
         try {
+            intentionallyStoppedTasks.add(taskId)
             YoutubeDL.getInstance().destroyProcessById(taskId)
             activeTasks.remove(taskId)
-            Log.i(TAG, "Task $taskId destroyed/stopped successfully")
+            Log.i(TAG, "Task $taskId destroyed/stopped intentionally")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop task $taskId: ${e.message}", e)
         }

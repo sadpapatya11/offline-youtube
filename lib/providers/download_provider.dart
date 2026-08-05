@@ -143,14 +143,43 @@ class DownloadProvider extends ChangeNotifier {
     }
   }
 
+  static bool isValidYouTubeUrl(String input) {
+    final trimmed = input.trim();
+    if (trimmed.isEmpty) return false;
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null) return false;
+
+    final lower = trimmed.toLowerCase();
+    final isHttp = lower.startsWith('http://') || lower.startsWith('https://');
+    final isYoutubeDomain = lower.contains('youtube.com') ||
+        lower.contains('youtu.be') ||
+        lower.contains('yt.be');
+
+    return isHttp && isYoutubeDomain;
+  }
+
+  static String cleanErrorMessage(dynamic error) {
+    var msg = error.toString();
+    if (msg.contains('PlatformException(')) {
+      msg = msg.replaceAll(RegExp(r'PlatformException\([^,]+,\s*'), '').replaceAll(RegExp(r',\s*null,\s*null\)'), '');
+    }
+    if (msg.contains('ERROR:')) {
+      msg = msg.substring(msg.indexOf('ERROR:') + 6);
+    }
+    // Remove warning lines
+    final lines = msg.split('\n').where((l) => !l.trim().startsWith('WARNING:') && !l.trim().startsWith('It is strongly') && !l.trim().startsWith('Run "') && !l.trim().startsWith('To suppress')).join('\n');
+    return lines.trim().isNotEmpty ? lines.trim() : 'Video bilgisi alınamadı.';
+  }
+
   Future<String?> addDownload({
     required String url,
     required AppSettings settings,
     required int currentStorageUsedBytes,
   }) async {
     final cleanUrl = url.trim();
-    if (cleanUrl.isEmpty) {
-      return 'Lütfen geçerli bir video veya oynatma listesi URL\'si girin.';
+    if (cleanUrl.isEmpty || !isValidYouTubeUrl(cleanUrl)) {
+      return 'Geçersiz YouTube bağlantısı. Lütfen geçerli bir video veya oynatma listesi URL\'si girin (örn: https://www.youtube.com/watch?v=...).';
     }
 
     // 1. Ağ Kısıtlaması Kontrolü
@@ -222,7 +251,7 @@ class DownloadProvider extends ChangeNotifier {
       return null;
     } catch (e) {
       task.status = DownloadStatus.error;
-      task.errorMessage = 'Video bilgisi alınamadı: ${e.toString()}';
+      task.errorMessage = 'Hata: ${cleanErrorMessage(e)}';
       notifyListeners();
       return task.errorMessage;
     }
@@ -292,7 +321,7 @@ class DownloadProvider extends ChangeNotifier {
       return null;
     } catch (e) {
       loadingTask.status = DownloadStatus.error;
-      loadingTask.errorMessage = 'Liste alınamadı: ${e.toString()}';
+      loadingTask.errorMessage = 'Hata: ${cleanErrorMessage(e)}';
       notifyListeners();
       return loadingTask.errorMessage;
     }
@@ -346,6 +375,11 @@ class DownloadProvider extends ChangeNotifier {
     _tasks.removeWhere((t) => t.id == taskId);
     notifyListeners();
     _triggerNextQueue();
+  }
+
+  void clearErrors() {
+    _tasks.removeWhere((t) => t.status == DownloadStatus.error);
+    notifyListeners();
   }
 
   void clearCompleted() {

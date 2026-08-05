@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../models/download_task.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../theme/amoled_theme.dart';
@@ -13,11 +14,22 @@ class QueueScreen extends StatelessWidget {
     final downloadProvider = context.watch<DownloadProvider>();
     final settingsProvider = context.watch<SettingsProvider>();
     final tasks = downloadProvider.tasks;
+    final hasErrors = tasks.any((t) => t.status == DownloadStatus.error);
+    final hasCompleted = tasks.any((t) =>
+        t.status == DownloadStatus.completed ||
+        t.status == DownloadStatus.cancelled);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('İNDİRME KUYRUĞU'),
         actions: [
+          if (hasErrors)
+            IconButton(
+              icon: const Icon(Icons.delete_sweep_rounded,
+                  color: Color(0xFFFF5252)),
+              tooltip: 'Hataları Temizle',
+              onPressed: () => downloadProvider.clearErrors(),
+            ),
           if (tasks.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.cleaning_services_rounded,

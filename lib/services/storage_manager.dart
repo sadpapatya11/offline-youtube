@@ -20,24 +20,43 @@ class StorageManager {
 
     try {
       Directory dir = Directory(_currentDownloadPath);
-      if (!await dir.exists()) {
-        try {
+      bool created = false;
+      try {
+        if (!await dir.exists()) {
           await dir.create(recursive: true);
-        } catch (e) {
-          // If permission is not yet granted or Android restricted, fallback to external files dir
-          final extDir = await getExternalStorageDirectory();
-          if (extDir != null) {
-            _currentDownloadPath = '${extDir.path}/.offlineyoutube';
-            dir = Directory(_currentDownloadPath);
+        }
+        created = await dir.exists();
+      } catch (_) {
+        created = false;
+      }
+
+      if (!created) {
+        // Fallback to app external storage directory
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null) {
+          _currentDownloadPath = '${extDir.path}/.offlineyoutube';
+          dir = Directory(_currentDownloadPath);
+          if (!await dir.exists()) {
+            await dir.create(recursive: true);
+          }
+        } else {
+          final appDocDir = await getApplicationDocumentsDirectory();
+          _currentDownloadPath = '${appDocDir.path}/.offlineyoutube';
+          dir = Directory(_currentDownloadPath);
+          if (!await dir.exists()) {
             await dir.create(recursive: true);
           }
         }
       }
 
       // Ensure .nomedia file exists to hide from gallery
-      final noMedia = File('${dir.path}/.nomedia');
-      if (!await noMedia.exists()) {
-        await noMedia.create();
+      try {
+        final noMedia = File('${dir.path}/.nomedia');
+        if (!await noMedia.exists()) {
+          await noMedia.create();
+        }
+      } catch (_) {
+        // Non-fatal if nomedia cannot be written
       }
     } catch (e) {
       // Handled gracefully

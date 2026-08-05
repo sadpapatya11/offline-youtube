@@ -10,6 +10,7 @@ import com.yausername.youtubedl_android.mapper.VideoInfo
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.aria2c.Aria2c
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -37,6 +38,16 @@ object YtDlpNativeManager {
             }
             isInitialized = true
             Log.i(TAG, "YtDlpNativeManager initialized successfully")
+
+            // Auto-update yt-dlp binary in background
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel._STABLE)
+                    Log.i(TAG, "yt-dlp auto-updated successfully")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Background yt-dlp update skipped: ${e.message}")
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize YoutubeDL: ${e.message}", e)
         }
@@ -57,6 +68,8 @@ object YtDlpNativeManager {
         try {
             val isPlaylist = isPlaylistUrl(url)
             val request = YoutubeDLRequest(url).apply {
+                addOption("--no-update")
+                addOption("--no-warnings")
                 if (isPlaylist) {
                     addOption("--flat-playlist")
                 } else {
@@ -86,6 +99,8 @@ object YtDlpNativeManager {
     suspend fun fetchPlaylistEntries(url: String): List<Map<String, Any?>> = withContext(Dispatchers.IO) {
         try {
             val request = YoutubeDLRequest(url).apply {
+                addOption("--no-update")
+                addOption("--no-warnings")
                 addOption("--flat-playlist")
                 addOption("-J")
             }
@@ -187,6 +202,8 @@ object YtDlpNativeManager {
             intentionallyStoppedTasks.remove(taskId)
 
             val request = YoutubeDLRequest(url).apply {
+                addOption("--no-update")
+                addOption("--no-warnings")
                 addOption("-o", "${outputDir.absolutePath}/%(title)s.%(ext)s")
                 addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
                 addOption("--no-mtime")

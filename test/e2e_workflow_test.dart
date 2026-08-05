@@ -140,7 +140,28 @@ void main() {
       expect(totalGB, closeTo(1.95, 0.05));
     });
 
-    testWidgets('5. Full UI E2E Navigation & Component Interaction', (WidgetTester tester) async {
+    test('5. YouTube URL Validation & Error Message Cleaning', () {
+      // Invalid inputs
+      expect(DownloadProvider.isValidYouTubeUrl(''), isFalse);
+      expect(DownloadProvider.isValidYouTubeUrl('Bu offline-youtube uygulamasında indirmeyi duraklattığında...'), isFalse);
+      expect(DownloadProvider.isValidYouTubeUrl('not a url'), isFalse);
+      expect(DownloadProvider.isValidYouTubeUrl('ftp://youtube.com/watch?v=123'), isFalse);
+
+      // Valid inputs
+      expect(DownloadProvider.isValidYouTubeUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), isTrue);
+      expect(DownloadProvider.isValidYouTubeUrl('http://youtu.be/dQw4w9WgXcQ'), isTrue);
+      expect(DownloadProvider.isValidYouTubeUrl('https://youtube.com/shorts/abcd1234'), isTrue);
+      expect(DownloadProvider.isValidYouTubeUrl('https://music.youtube.com/watch?v=xyz'), isTrue);
+      expect(DownloadProvider.isValidYouTubeUrl('https://www.youtube.com/playlist?list=PL123456789'), isTrue);
+
+      // Error cleaning
+      final rawError = 'PlatformException(METADATA_ERROR, WARNING: Your yt-dlp version is older than 90 days! ERROR: [generic] not a valid URL, null, null)';
+      final cleaned = DownloadProvider.cleanErrorMessage(rawError);
+      expect(cleaned, contains('[generic] not a valid URL'));
+      expect(cleaned.contains('WARNING:'), isFalse);
+    });
+
+    testWidgets('6. Full UI E2E Navigation & Component Interaction', (WidgetTester tester) async {
       await tester.pumpWidget(const OfflineYoutubeApp());
       await tester.pump(const Duration(milliseconds: 200));
 

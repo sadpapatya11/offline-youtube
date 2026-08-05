@@ -31,12 +31,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _pasteAndAutoDownload() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text?.trim();
-    if (text != null && text.isNotEmpty && (text.startsWith('http://') || text.startsWith('https://') || text.contains('youtube') || text.contains('youtu.be'))) {
+    if (text != null && text.isNotEmpty && DownloadProvider.isValidYouTubeUrl(text)) {
       _urlController.text = text;
       _triggerDownload(text);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Panoda geçerli bir YouTube bağlantısı bulunamadı.')),
+        const SnackBar(
+          content: Text('Panoda geçerli bir YouTube bağlantısı bulunamadı.'),
+          backgroundColor: Color(0xFF330000),
+          duration: Duration(seconds: 3),
+        ),
       );
     }
   }
@@ -44,6 +48,17 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _triggerDownload(String url) async {
     final cleanUrl = url.trim();
     if (cleanUrl.isEmpty) return;
+
+    if (!DownloadProvider.isValidYouTubeUrl(cleanUrl)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Lütfen geçerli bir YouTube video veya liste linki girin.'),
+          backgroundColor: Color(0xFF330000),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
 
     setState(() {
       _isProcessing = true;

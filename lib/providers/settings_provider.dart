@@ -1,0 +1,103 @@
+import 'package:flutter/foundation.dart';
+import '../models/app_settings.dart';
+import '../services/native_bridge.dart';
+import '../services/settings_manager.dart';
+import '../services/storage_manager.dart';
+
+class SettingsProvider extends ChangeNotifier {
+  AppSettings _settings = const AppSettings();
+  bool _hasStoragePermission = false;
+  bool _isLoading = true;
+
+  AppSettings get settings => _settings;
+  bool get hasStoragePermission => _hasStoragePermission;
+  bool get isLoading => _isLoading;
+  bool get isOnlyWifiEnabled =>
+      _settings.networkMode == NetworkRestrictionMode.anyWifi ||
+      _settings.networkMode == NetworkRestrictionMode.selectedWifi;
+
+  SettingsProvider() {
+    _init();
+  }
+
+  Future<void> _init() async {
+    _settings = await SettingsManager.instance.loadSettings();
+    await StorageManager.instance.initDirectory(_settings.customDownloadPath);
+    await checkPermission();
+    _isLoading = false;
+    notifyListeners();
+  }
+
+  Future<void> checkPermission() async {
+    _hasStoragePermission = await NativeBridge.instance.hasAllFilesPermission();
+    notifyListeners();
+  }
+
+  Future<void> requestPermission() async {
+    await NativeBridge.instance.requestAllFilesPermission();
+    await Future.delayed(const Duration(seconds: 1));
+    await checkPermission();
+  }
+
+  Future<void> updateStorageLimit(int limitGB) async {
+    if (limitGB < 1) limitGB = 1;
+    _settings = _settings.copyWith(maxStorageLimitGB: limitGB);
+    await SettingsManager.instance.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateMaxVideoDuration(int hours) async {
+    if (hours < 1) hours = 1;
+    _settings = _settings.copyWith(maxVideoDurationHours: hours);
+    await SettingsManager.instance.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> updateNetworkMode(NetworkRestrictionMode mode) async {
+    _settings = _settings.copyWith(networkMode: mode);
+    await SettingsManager.instance.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> setOnlyWifi(bool onlyWifi) async {
+    final mode = onlyWifi
+        ? NetworkRestrictionMode.anyWifi
+        : NetworkRestrictionMode.allNetworks;
+    await updateNetworkMode(mode);
+  }
+
+  Future<void> updateAllowedSsid(String ssid) async {
+    _settings = _settings.copyWith(allowedWifiSsid: ssid);
+    await SettingsManager.instance.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> toggleAutoDownload(bool enabled) async {
+    _settings = _settings.copyWith(autoDownloadOnPaste: enabled);
+    await SettingsManager.instance.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> togglePlaylistReverse(bool enabled) async {
+    _settings = _settings.copyWith(playlistReverseOrder: enabled);
+    await SettingsManager.instance.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> addSavedPlaylist(String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty || _settings.savedPlaylists.contains(trimmed)) return;
+    final updated = List<String>.from(_settings.savedPlaylists)..add(trimmed);
+    _settings = _settings.copyWith(savedPlaylists: updated);
+    await SettingsManager.instance.saveSettings(_settings);
+    notifyListeners();
+  }
+
+  Future<void> removeSavedPlaylist(String url) async {
+    final updated = List<String>.from(_settings.savedPlaylists)
+      ..removeWhere((item) => item == url);
+    _settings = _settings.copyWith(savedPlaylists: updated);
+    await SettingsManager.instance.saveSettings(_settings);
+    notifyListeners();
+  }
+}

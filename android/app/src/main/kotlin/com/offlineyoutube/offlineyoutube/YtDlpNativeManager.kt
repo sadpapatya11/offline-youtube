@@ -87,39 +87,60 @@ object YtDlpNativeManager {
         try {
             val request = YoutubeDLRequest(url).apply {
                 addOption("--flat-playlist")
-                addOption("--dump-single-json")
+                addOption("-J")
             }
-            val videoInfo: VideoInfo = YoutubeDL.getInstance().getInfo(request)
+            val response = YoutubeDL.getInstance().execute(request)
+            val jsonStr = response.out
             val entries = mutableListOf<Map<String, Any?>>()
 
-            // VideoInfo may contain raw JSON in response or entries
-            // Let's also parse via flat-playlist JSON dump if needed
-            val rawEntries = videoInfo.entries
-            if (rawEntries != null && rawEntries.isNotEmpty()) {
-                for (item in rawEntries) {
-                    val itemId = item.id ?: ""
-                    val itemUrl = if (itemId.isNotEmpty()) "https://www.youtube.com/watch?v=$itemId" else (item.url ?: "")
+            if (!jsonStr.isNullOrEmpty()) {
+                val jsonObj = org.json.JSONObject(jsonStr)
+                if (jsonObj.has("entries") && !jsonObj.isNull("entries")) {
+                    val rawArray = jsonObj.getJSONArray("entries")
+                    for (i in 0 until rawArray.length()) {
+                        val item = rawArray.optJSONObject(i) ?: continue
+                        val itemId = item.optString("id", "")
+                        val itemTitle = item.optString("title", "Video ${i + 1}")
+                        val itemDuration = item.optInt("duration", 0)
+                        val itemThumbnail = item.optString("thumbnail", "")
+                        val itemUploader = item.optString("uploader", "")
+                        val itemUploadDate = item.optString("upload_date", "")
+                        val itemUrl = if (itemId.isNotEmpty()) {
+                            "https://www.youtube.com/watch?v=$itemId"
+                        } else {
+                            item.optString("url", "")
+                        }
+
+                        if (itemUrl.isNotEmpty()) {
+                            entries.add(mapOf(
+                                "id" to itemId,
+                                "title" to itemTitle,
+                                "duration" to itemDuration,
+                                "thumbnail" to itemThumbnail,
+                                "uploader" to itemUploader,
+                                "url" to itemUrl,
+                                "uploadDate" to itemUploadDate
+                            ))
+                        }
+                    }
+                } else {
+                    val id = jsonObj.optString("id", "")
+                    val title = jsonObj.optString("title", "Video")
+                    val duration = jsonObj.optInt("duration", 0)
+                    val thumbnail = jsonObj.optString("thumbnail", "")
+                    val uploader = jsonObj.optString("uploader", "")
+                    val uploadDate = jsonObj.optString("upload_date", "")
+
                     entries.add(mapOf(
-                        "id" to itemId,
-                        "title" to (item.title ?: "Video"),
-                        "duration" to (item.duration ?: 0),
-                        "thumbnail" to (item.thumbnail ?: ""),
-                        "uploader" to (item.uploader ?: ""),
-                        "url" to itemUrl,
-                        "uploadDate" to (item.uploadDate ?: "")
+                        "id" to id,
+                        "title" to title,
+                        "duration" to duration,
+                        "thumbnail" to thumbnail,
+                        "uploader" to uploader,
+                        "url" to url,
+                        "uploadDate" to uploadDate
                     ))
                 }
-            } else {
-                // If single entry or flat playlist without entries array
-                entries.add(mapOf(
-                    "id" to (videoInfo.id ?: ""),
-                    "title" to (videoInfo.title ?: "Video"),
-                    "duration" to (videoInfo.duration ?: 0),
-                    "thumbnail" to (videoInfo.thumbnail ?: ""),
-                    "uploader" to (videoInfo.uploader ?: ""),
-                    "url" to url,
-                    "uploadDate" to (videoInfo.uploadDate ?: "")
-                ))
             }
 
             // Sort entries: En son yayınlanan video (newest upload date) en başta olacak şekilde

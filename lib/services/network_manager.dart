@@ -7,12 +7,20 @@ class NetworkManager {
 
   final Connectivity _connectivity = Connectivity();
 
+  Stream<List<ConnectivityResult>> get onConnectivityChanged =>
+      _connectivity.onConnectivityChanged;
+
   Future<List<ConnectivityResult>> getCurrentConnectivity() async {
     try {
       return await _connectivity.checkConnectivity();
     } catch (e) {
       return [ConnectivityResult.none];
     }
+  }
+
+  Future<bool> isWifiConnected() async {
+    final results = await getCurrentConnectivity();
+    return results.contains(ConnectivityResult.wifi);
   }
 
   Future<Map<String, dynamic>> checkNetworkPermissionAndStatus(AppSettings settings) async {

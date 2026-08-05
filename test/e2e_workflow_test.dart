@@ -37,7 +37,7 @@ void main() {
       expect(wifiOnlySettings.maxVideoDurationHours, 10);
     });
 
-    test('2. Sequential Queue & Task State Engine', () {
+    test('2. Sequential Queue & Task State Engine & Serialization', () {
       final task1 = DownloadTask(
         id: 'task_001',
         url: 'https://www.youtube.com/watch?v=video1',
@@ -64,6 +64,17 @@ void main() {
       expect(task1.status, DownloadStatus.downloading);
       expect(task1.formattedEta, '00:45');
 
+      // Test toJson and fromJson round-trip
+      final json1 = task1.toJson();
+      final restoredTask1 = DownloadTask.fromJson(json1);
+      expect(restoredTask1.id, task1.id);
+      expect(restoredTask1.url, task1.url);
+      expect(restoredTask1.title, task1.title);
+      expect(restoredTask1.status, DownloadStatus.downloading);
+      expect(restoredTask1.progress, 50.0);
+      expect(restoredTask1.speed, '4.2 MB/s');
+      expect(restoredTask1.etaSeconds, 45);
+
       // Pause task 1 (Supressing error state)
       task1.status = DownloadStatus.paused;
       task1.speed = '';
@@ -89,7 +100,7 @@ void main() {
         {'id': 'vid_old', 'title': 'Old Video', 'duration': 1200, 'upload_date': '20230101'},
         {'id': 'vid_new', 'title': 'New Video', 'duration': 1800, 'upload_date': '20260701'},
         {'id': 'vid_mid', 'title': 'Mid Video', 'duration': 900, 'upload_date': '20250515'},
-        {'id': 'vid_long', 'title': 'Too Long Video', 'duration': 36000, 'upload_date': '20260801'}, // 10 saat
+        {'id': 'vid_long', 'title': 'Too Long Video', 'duration': 36000, 'upload_date': '20260801'},
       ];
 
       // Sort by upload_date descending (newest first)

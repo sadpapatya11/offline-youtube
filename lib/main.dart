@@ -32,12 +32,15 @@ class OfflineYoutubeApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ChangeNotifierProvider(create: (_) => LibraryProvider()),
-        ChangeNotifierProxyProvider<LibraryProvider, DownloadProvider>(
+        ChangeNotifierProxyProvider2<SettingsProvider, LibraryProvider, DownloadProvider>(
           create: (_) => DownloadProvider(),
-          update: (_, libraryProvider, downloadProvider) {
-            downloadProvider?.onLibraryNeedsRefresh =
-                () => libraryProvider.refresh();
-            return downloadProvider ?? DownloadProvider();
+          update: (_, settingsProvider, libraryProvider, downloadProvider) {
+            final provider = downloadProvider ?? DownloadProvider();
+            provider.onLibraryNeedsRefresh = () => libraryProvider.refresh();
+            if (!settingsProvider.isLoading) {
+              provider.onSettingsChanged(settingsProvider.settings);
+            }
+            return provider;
           },
         ),
       ],

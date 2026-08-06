@@ -383,6 +383,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 24),
+            Center(
+              child: Column(
+                children: [
+                  Text(
+                    'Offline YouTube v1.2.0 (Build 3)',
+                    style: TextStyle(
+                      color: AmoledTheme.pureWhite.withValues(alpha: 0.5),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Otomatik Kuyruk • Thumbnails • Türkçe Başlık',
+                    style: TextStyle(
+                      color: AmoledTheme.subText.withValues(alpha: 0.5),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
           ],
         ),
       ),

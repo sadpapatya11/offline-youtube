@@ -70,6 +70,9 @@ object YtDlpNativeManager {
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
+                addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
+                addOption("--extractor-args", "youtube:lang=tr")
+                addOption("--geo-bypass-country", "TR")
                 if (isPlaylist) {
                     addOption("--flat-playlist")
                 } else {
@@ -101,6 +104,9 @@ object YtDlpNativeManager {
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
+                addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
+                addOption("--extractor-args", "youtube:lang=tr")
+                addOption("--geo-bypass-country", "TR")
                 addOption("--flat-playlist")
                 addOption("-J")
             }
@@ -204,6 +210,11 @@ object YtDlpNativeManager {
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
+                addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
+                addOption("--extractor-args", "youtube:lang=tr")
+                addOption("--geo-bypass-country", "TR")
+                addOption("--write-thumbnail")
+                addOption("--convert-thumbnails", "jpg")
                 addOption("-o", "${outputDir.absolutePath}/%(title)s.%(ext)s")
                 addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
                 addOption("--no-mtime")

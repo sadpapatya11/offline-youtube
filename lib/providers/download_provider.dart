@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import '../models/app_settings.dart';
 import '../models/download_task.dart';
 import '../services/native_bridge.dart';
@@ -10,45 +9,60 @@ import '../services/network_manager.dart';
 import '../services/storage_manager.dart';
 
 class DownloadProvider extends ChangeNotifier {
-  static const String _tasksPrefKey = 'offline_youtube_persisted_tasks_v1';
-  static const String _queuePausedPrefKey = 'offline_youtube_queue_paused_state';
+  static const String _tasksPrefKey = 'offline_youtube_persisted_tasks_v2';
+  static const String _queuePausedPrefKey = 'offline_youtube_queue_paused_v2';
 
   final List<DownloadTask> _tasks = [];
-  StreamSubscription? _eventSubscription;
-  StreamSubscription? _connectivitySubscription;
-  VoidCallback? onLibraryNeedsRefresh;
-
-  String? _activeTaskId;
   bool _isProcessingQueue = false;
+  String? _activeTaskId;
   bool _isQueuePaused = false;
+  bool _isWifiWaiting = false;
   bool _isLoaded = false;
   AppSettings? _lastSettings;
-  bool _isWifiWaiting = false;
+  VoidCallback? onLibraryNeedsRefresh;
+
+  StreamSubscription? _eventSubscription;
+  StreamSubscription? _connectivitySubscription;
 
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
+  bool get isProcessingQueue => _isProcessingQueue;
+  String? get activeTaskId => _activeTaskId;
   bool get isQueuePaused => _isQueuePaused;
-  bool get isLoaded => _isLoaded;
   bool get isWifiWaiting => _isWifiWaiting;
+  bool get isLoaded => _isLoaded;
+
+  int get queuedCount =>
+      _tasks.where((t) => t.status == DownloadStatus.queued).length;
+
+  int get downloadingCount =>
+      _tasks.where((t) => t.status == DownloadStatus.downloading).length;
+
+  int get completedCount =>
+      _tasks.where((t) => t.status == DownloadStatus.completed).length;
 
   int get activeDownloadCount => _tasks
       .where((t) =>
           t.status == DownloadStatus.downloading ||
-          t.status == DownloadStatus.fetchingMetadata ||
           t.status == DownloadStatus.queued)
       .length;
 
   bool get isDownloadingActive =>
       _tasks.any((t) => t.status == DownloadStatus.downloading);
 
-  DownloadTask? get currentDownloadingTask {
-    if (_activeTaskId != null) {
-      final idx = _tasks.indexWhere((t) => t.id == _activeTaskId);
-      if (idx != -1) return _tasks[idx];
-    }
-    return _tasks.cast<DownloadTask?>().firstWhere(
-          (t) => t?.status == DownloadStatus.downloading,
-          orElse: () => null,
-        );
+  DownloadTask? get activeTask {
+    if (_activeTaskId == null) return null;
+    return _tasks.firstWhere(
+      (t) => t.id == _activeTaskId,
+      orElse: () => _tasks.firstWhere(
+        (t) => t.status == DownloadStatus.downloading,
+        orElse: () => _tasks.isNotEmpty ? _tasks.first : DownloadTask(
+          id: '',
+          url: '',
+          title: '',
+          status: DownloadStatus.queued,
+        ),
+      ),
+    );
   }
 
   DownloadProvider() {
@@ -57,7 +71,7 @@ class DownloadProvider extends ChangeNotifier {
     _listenToConnectivity();
   }
 
-  // --- 1. PERSISTENCE (KALICILIK) ---
+  // --- 1. PERSISTENCE (KALICILIK) & AÇILIŞTA OTOMATİK BAŞLATMA ---
 
   Future<void> _loadPersistedState() async {
     try {
@@ -71,10 +85,11 @@ class DownloadProvider extends ChangeNotifier {
           try {
             final Map<String, dynamic> jsonMap = jsonDecode(itemStr);
             final task = DownloadTask.fromJson(jsonMap);
-            // Uygulama kapandığında inmekte olan veya metadata çeken görevleri güvenle 'duraklatıldı' yap
+            // Uygulama kapandığında inmekte olan veya metadata çeken görevleri 'queued' (sırada) yap
+            // Böylece açılışta veya koşullar sağlandığında otomatik devam edebilsin
             if (task.status == DownloadStatus.downloading ||
                 task.status == DownloadStatus.fetchingMetadata) {
-              task.status = DownloadStatus.paused;
+              task.status = DownloadStatus.queued;
               task.speed = '';
             }
             _tasks.add(task);
@@ -85,6 +100,12 @@ class DownloadProvider extends ChangeNotifier {
     } finally {
       _isLoaded = true;
       notifyListeners();
+
+      // Uygulama açılışında master duraklatma yoksa ve kuyrukta bekleyen varsa otomatik başlat
+      if (!_isQueuePaused &&
+          _tasks.any((t) => t.status == DownloadStatus.queued)) {
+        _triggerNextQueue();
+      }
     }
   }
 
@@ -98,23 +119,37 @@ class DownloadProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  // --- 2. GERÇEK ZAMANLI AĞ VE WI-FI DİNLEME (MOBİL VERİ KORUMASI) ---
+  // --- 2. GERÇEK ZAMANLI AĞ VE WI-FI DİNLEME (MOBİL VERİ KORUMASI & AUTO-RESUME) ---
 
   void _listenToConnectivity() {
     _connectivitySubscription =
         NetworkManager.instance.onConnectivityChanged.listen((results) async {
-      await _evaluateNetworkGuard();
+      await _evaluateConditionsAndAutoResume();
     });
   }
 
   Future<void> onSettingsChanged(AppSettings settings) async {
     _lastSettings = settings;
-    await _evaluateNetworkGuard();
+    await _evaluateConditionsAndAutoResume();
   }
 
-  Future<void> _evaluateNetworkGuard() async {
+  Future<void> _evaluateConditionsAndAutoResume() async {
     if (_lastSettings == null) return;
 
+    // 1. Depolama kotası kontrolü
+    final maxBytes = _lastSettings!.maxStorageLimitGB * 1024 * 1024 * 1024;
+    final usedBytes = await StorageManager.instance.getUsedStorageBytes();
+    if (usedBytes >= maxBytes) {
+      if (_activeTaskId != null || isDownloadingActive) {
+        await _pauseForMobileDataGuard(
+          '⚠️ Belirlenen depolama kotası (${_lastSettings!.maxStorageLimitGB} GB) doldu. İndirme duraklatıldı.',
+        );
+      }
+      notifyListeners();
+      return;
+    }
+
+    // 2. Ağ kontrolü
     if (_lastSettings!.networkMode == NetworkRestrictionMode.anyWifi) {
       final isWifi = await NetworkManager.instance.isWifiConnected();
       _isWifiWaiting = !isWifi;
@@ -127,14 +162,40 @@ class DownloadProvider extends ChangeNotifier {
           );
         }
       } else {
-        // Wi-Fi geri geldi
-        if (!_isQueuePaused &&
-            _tasks.any((t) => t.status == DownloadStatus.queued)) {
-          _triggerNextQueue();
+        // Wi-Fi bağlandı -> Koşullar sağlandı, bekleyen görevleri otomatik başlat!
+        if (!_isQueuePaused) {
+          // Mobil veri korumasından dolayı duraklatılmış görevleri kuyruğa al
+          for (final t in _tasks) {
+            if (t.status == DownloadStatus.paused &&
+                (t.errorMessage?.contains('Mobil veri') == true ||
+                    t.errorMessage?.contains('Wi-Fi') == true)) {
+              t.status = DownloadStatus.queued;
+              t.errorMessage = null;
+            }
+          }
+          await _saveTasksToStorage();
+          if (_tasks.any((t) => t.status == DownloadStatus.queued)) {
+            _triggerNextQueue();
+          }
         }
       }
     } else {
+      // Tüm Ağlar izinli (Wi-Fi veya Mobil Veri farketmeksizin)
       _isWifiWaiting = false;
+      if (!_isQueuePaused) {
+        for (final t in _tasks) {
+          if (t.status == DownloadStatus.paused &&
+              (t.errorMessage?.contains('Mobil veri') == true ||
+                  t.errorMessage?.contains('Wi-Fi') == true)) {
+            t.status = DownloadStatus.queued;
+            t.errorMessage = null;
+          }
+        }
+        await _saveTasksToStorage();
+        if (_tasks.any((t) => t.status == DownloadStatus.queued)) {
+          _triggerNextQueue();
+        }
+      }
     }
     notifyListeners();
   }
@@ -178,37 +239,51 @@ class DownloadProvider extends ChangeNotifier {
         final type = data['type']?.toString();
 
         switch (type) {
-          case 'started':
-            task.status = DownloadStatus.downloading;
-            break;
           case 'progress':
-            task.status = DownloadStatus.downloading;
-            task.progress =
-                (data['progress'] as num?)?.toDouble() ?? task.progress;
-            task.etaSeconds =
-                (data['eta'] as num?)?.toInt() ?? task.etaSeconds;
-            task.speed = data['speed']?.toString() ?? task.speed;
-            break;
-          case 'paused':
-            task.status = DownloadStatus.paused;
-            task.speed = '';
-            if (_activeTaskId == taskId) {
-              _activeTaskId = null;
+            final progress = (data['progress'] as num?)?.toDouble() ?? 0.0;
+            final eta = (data['eta'] as num?)?.toInt() ?? 0;
+            final speed = data['speed']?.toString() ?? '';
+
+            if (task.status == DownloadStatus.downloading) {
+              task.progress = progress;
+              task.etaSeconds = eta;
+              task.speed = speed;
+              notifyListeners();
             }
-            // DÜZELTME: Duraklatıldığında ASLA bir sonrakine geçilmez!
-            _saveTasksToStorage();
             break;
+
           case 'completed':
             task.status = DownloadStatus.completed;
             task.progress = 100.0;
             task.speed = '';
+            task.etaSeconds = 0;
+            task.errorMessage = null;
             if (_activeTaskId == taskId) {
               _activeTaskId = null;
             }
-            onLibraryNeedsRefresh?.call();
             _saveTasksToStorage();
+            notifyListeners();
+            onLibraryNeedsRefresh?.call();
             _triggerNextQueue();
             break;
+
+          case 'error':
+            if (task.status != DownloadStatus.paused &&
+                task.status != DownloadStatus.cancelled) {
+              task.status = DownloadStatus.error;
+              task.speed = '';
+              task.errorMessage = cleanErrorMessage(data['error']?.toString() ??
+                  data['message']?.toString() ??
+                  'İndirme hatası oluştu');
+              if (_activeTaskId == taskId) {
+                _activeTaskId = null;
+              }
+              _saveTasksToStorage();
+              notifyListeners();
+              _triggerNextQueue();
+            }
+            break;
+
           case 'cancelled':
             task.status = DownloadStatus.cancelled;
             task.speed = '';
@@ -216,30 +291,21 @@ class DownloadProvider extends ChangeNotifier {
               _activeTaskId = null;
             }
             _saveTasksToStorage();
-            _triggerNextQueue();
-            break;
-          case 'error':
-            task.status = DownloadStatus.error;
-            task.errorMessage = cleanErrorMessage(data['error'] ?? 'Hata oluştu');
-            task.speed = '';
-            if (_activeTaskId == taskId) {
-              _activeTaskId = null;
-            }
-            _saveTasksToStorage();
+            notifyListeners();
             _triggerNextQueue();
             break;
         }
-
-        notifyListeners();
       },
-      onError: (err) {},
+      onError: (e) {
+        // Event channel hatası
+      },
     );
   }
 
   void _triggerNextQueue() {
     if (_isQueuePaused) return;
 
-    Future.delayed(const Duration(milliseconds: 1500), () {
+    Future.delayed(const Duration(milliseconds: 1000), () {
       if (!_isQueuePaused) {
         processNextQueue();
       }
@@ -275,7 +341,6 @@ class DownloadProvider extends ChangeNotifier {
   Future<void> resumeQueue({AppSettings? settings}) async {
     _isQueuePaused = false;
 
-    // Duraklatılmış olan kuyruk görevlerini tekrar 'queued' yap
     for (final t in _tasks) {
       if (t.status == DownloadStatus.paused) {
         t.status = DownloadStatus.queued;
@@ -296,11 +361,21 @@ class DownloadProvider extends ChangeNotifier {
     final currentSettings = settings ?? _lastSettings;
     if (currentSettings != null) {
       _lastSettings = currentSettings;
-      // Ağ kontrolü
+
+      // 1. Ağ kontrolü
       final netCheck = await NetworkManager.instance
           .checkNetworkPermissionAndStatus(currentSettings);
       if (netCheck['allowed'] != true) {
-        _isWifiWaiting = currentSettings.networkMode == NetworkRestrictionMode.anyWifi;
+        _isWifiWaiting =
+            currentSettings.networkMode == NetworkRestrictionMode.anyWifi;
+        notifyListeners();
+        return;
+      }
+
+      // 2. Depolama kotası kontrolü
+      final maxBytes = currentSettings.maxStorageLimitGB * 1024 * 1024 * 1024;
+      final usedBytes = await StorageManager.instance.getUsedStorageBytes();
+      if (usedBytes >= maxBytes) {
         notifyListeners();
         return;
       }
@@ -359,75 +434,103 @@ class DownloadProvider extends ChangeNotifier {
     final uri = Uri.tryParse(trimmed);
     if (uri == null) return false;
 
-    final lower = trimmed.toLowerCase();
-    final isHttp = lower.startsWith('http://') || lower.startsWith('https://');
-    final isYoutubeDomain = lower.contains('youtube.com') ||
-        lower.contains('youtu.be') ||
-        lower.contains('yt.be');
+    if (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      return false;
+    }
 
-    return isHttp && isYoutubeDomain;
+    final host = uri.host.toLowerCase();
+    final validHosts = [
+      'youtube.com',
+      'www.youtube.com',
+      'm.youtube.com',
+      'music.youtube.com',
+      'youtu.be',
+    ];
+
+    if (!validHosts.contains(host) && !host.endsWith('.youtube.com')) {
+      return false;
+    }
+
+    return uri.path.isNotEmpty;
+  }
+
+  static bool isPlaylistUrl(String url) {
+    final lower = url.toLowerCase();
+    return lower.contains('list=') || lower.contains('/playlist');
   }
 
   static String cleanErrorMessage(dynamic error) {
-    var msg = error.toString();
-    if (msg.contains('PlatformException(')) {
-      msg = msg
-          .replaceAll(RegExp(r'PlatformException\([^,]+,\s*'), '')
-          .replaceAll(RegExp(r',\s*null,\s*null\)'), '');
+    if (error == null) return 'Bilinmeyen bir hata oluştu.';
+    String result = error.toString().trim();
+
+    // Strip PlatformException wrapper if present
+    if (result.startsWith('PlatformException(')) {
+      final firstComma = result.indexOf(',');
+      if (firstComma != -1) {
+        final rest = result.substring(firstComma + 1).trim();
+        final lastComma = rest.lastIndexOf(',');
+        if (lastComma != -1) {
+          result = rest.substring(0, lastComma).trim();
+        } else {
+          result = rest;
+        }
+      }
     }
-    if (msg.contains('ERROR:')) {
-      msg = msg.substring(msg.indexOf('ERROR:') + 6);
+
+    // Remove yt-dlp update warnings
+    result = result.replaceAll(
+        RegExp(r'WARNING:\s*Your yt-dlp version is older than \d+ days!.*?(ERROR:|$)',
+            caseSensitive: false),
+        r'$1');
+    result = result.replaceAll(
+        RegExp(r'WARNING:\s*.*?deprecationwarning.*?(ERROR:|$)',
+            caseSensitive: false),
+        r'$1');
+
+    if (result.contains('ERROR:')) {
+      result = result.substring(result.indexOf('ERROR:'));
     }
-    final lines = msg
-        .split('\n')
-        .where((l) =>
-            !l.trim().startsWith('WARNING:') &&
-            !l.trim().startsWith('It is strongly') &&
-            !l.trim().startsWith('Run "') &&
-            !l.trim().startsWith('To suppress'))
-        .join('\n');
-    return lines.trim().isNotEmpty ? lines.trim() : 'Video bilgisi alınamadı.';
+
+    result = result.replaceAll(RegExp(r',\s*null,\s*null\)?$'), '').trim();
+
+    return result.isEmpty ? 'İndirme işlemi sırasında bir hata oluştu.' : result;
   }
 
-  // --- 6. İNDİRME EKLEME İŞLEMLERİ ---
+  // --- 6. VİDEO VE OYNATMA LİSTESİ EKLEME ---
 
   Future<String?> addDownload({
     required String url,
     required AppSettings settings,
-    required int currentStorageUsedBytes,
+    int? currentStorageUsedBytes,
   }) async {
     _lastSettings = settings;
-    final cleanUrl = url.trim();
-    if (cleanUrl.isEmpty || !isValidYouTubeUrl(cleanUrl)) {
-      return 'Geçersiz YouTube bağlantısı. Lütfen geçerli bir video veya oynatma listesi URL\'si girin.';
-    }
 
+    // 1. Ağ Kısıtlama Kontrolü
     final netCheck = await NetworkManager.instance
         .checkNetworkPermissionAndStatus(settings);
     if (netCheck['allowed'] != true) {
-      return netCheck['reason'] as String? ?? 'Ağ kısıtlaması engeli.';
+      return netCheck['reason'] as String? ??
+          'Ağ ayarlarınız indirme yapılmasına izin vermiyor.';
     }
 
-    final maxQuotaBytes = settings.maxStorageLimitGB * 1024 * 1024 * 1024;
-    if (currentStorageUsedBytes >= maxQuotaBytes) {
-      return 'Depolama alanı kotası (${settings.maxStorageLimitGB} GB) dolmuştur. Yeni video indirilemez.';
+    // 2. Depolama Kotası Kontrolü
+    final currentUsed = currentStorageUsedBytes ??
+        await StorageManager.instance.getUsedStorageBytes();
+    final maxBytes = settings.maxStorageLimitGB * 1024 * 1024 * 1024;
+    if (currentUsed >= maxBytes) {
+      return 'Mevcut indirmeler belirlenen depolama sınırını (${settings.maxStorageLimitGB} GB) aşmış durumda. Lütfen yer açın veya kotayı artırın.';
     }
 
-    final isPlaylist = cleanUrl.contains('list=') ||
-        cleanUrl.contains('/playlist') ||
-        cleanUrl.contains('/@') ||
-        cleanUrl.contains('/channel/');
+    // 3. YouTube URL Doğrulama
+    if (!isValidYouTubeUrl(url)) {
+      return 'Geçersiz YouTube bağlantısı. Lütfen geçerli bir video veya oynatma listesi URL\'si girin.';
+    }
 
+    final isPlaylist = isPlaylistUrl(url);
     if (isPlaylist) {
-      return _addPlaylistDownload(
-        url: cleanUrl,
-        settings: settings,
-      );
+      return await _addPlaylistDownload(url: url, settings: settings);
     } else {
-      return _addSingleVideoDownload(
-        url: cleanUrl,
-        settings: settings,
-      );
+      return await _addSingleVideoDownload(url: url, settings: settings);
     }
   }
 
@@ -450,7 +553,9 @@ class DownloadProvider extends ChangeNotifier {
     try {
       final metadata = await NativeBridge.instance.fetchMetadata(url);
       final title = metadata['title'] as String? ?? 'Video $taskId';
-      final duration = metadata['duration'] as int? ?? 0;
+      final duration = (metadata['duration'] as num?)?.toInt() ?? 0;
+      final thumbnail = metadata['thumbnail'] as String?;
+      final uploader = metadata['uploader'] as String?;
 
       final maxDurationSeconds = settings.maxVideoDurationHours * 3600;
       if (duration > 0 && duration > maxDurationSeconds) {
@@ -463,6 +568,9 @@ class DownloadProvider extends ChangeNotifier {
       }
 
       task.title = title;
+      task.durationSeconds = duration;
+      task.thumbnail = thumbnail;
+      task.uploader = uploader;
       task.status = DownloadStatus.queued;
       _saveTasksToStorage();
       notifyListeners();
@@ -514,6 +622,8 @@ class DownloadProvider extends ChangeNotifier {
         final videoUrl = entry['url'] as String? ?? '';
         final title = entry['title'] as String? ?? 'Video ${i + 1}';
         final duration = (entry['duration'] as num?)?.toInt() ?? 0;
+        final thumbnail = entry['thumbnail'] as String?;
+        final uploader = entry['uploader'] as String?;
 
         if (videoUrl.isEmpty) continue;
 
@@ -527,6 +637,9 @@ class DownloadProvider extends ChangeNotifier {
           id: taskId,
           url: videoUrl,
           title: title,
+          thumbnail: thumbnail,
+          durationSeconds: duration,
+          uploader: uploader,
           status: DownloadStatus.queued,
         );
 
@@ -559,62 +672,54 @@ class DownloadProvider extends ChangeNotifier {
 
   Future<void> pauseTask(String taskId) async {
     final index = _tasks.indexWhere((t) => t.id == taskId);
-    if (index == -1) return;
-
-    _tasks[index].status = DownloadStatus.paused;
-    _tasks[index].speed = '';
-    if (_activeTaskId == taskId) {
-      _activeTaskId = null;
+    if (index != -1) {
+      _tasks[index].status = DownloadStatus.paused;
+      _tasks[index].speed = '';
+      if (_activeTaskId == taskId) {
+        _activeTaskId = null;
+      }
+      _saveTasksToStorage();
+      notifyListeners();
+      await NativeBridge.instance.pauseDownload(taskId);
     }
-    await _saveTasksToStorage();
-    notifyListeners();
-
-    await NativeBridge.instance.pauseDownload(taskId);
-    // DÜZELTME: pauseTask sonrasında ASLA _triggerNextQueue() çağrılmaz!
   }
 
-  Future<void> resumeTask(String taskId, AppSettings settings) async {
-    _lastSettings = settings;
+  Future<void> resumeTask(String taskId, [AppSettings? settings]) async {
     final index = _tasks.indexWhere((t) => t.id == taskId);
-    if (index == -1) return;
+    if (index != -1) {
+      _tasks[index].status = DownloadStatus.queued;
+      _tasks[index].errorMessage = null;
+      _saveTasksToStorage();
+      notifyListeners();
 
-    _tasks[index].status = DownloadStatus.queued;
-    _tasks[index].errorMessage = null;
-    _isQueuePaused = false; // Kullanıcı açıkça bir görevi başlattıysa kuyruğu da aç
-    await _saveTasksToStorage();
-    notifyListeners();
-
-    await processNextQueue(settings: settings);
+      if (!_isQueuePaused) {
+        await processNextQueue(settings: settings ?? _lastSettings);
+      }
+    }
   }
 
   Future<void> cancelTask(String taskId) async {
     final index = _tasks.indexWhere((t) => t.id == taskId);
-    if (index == -1) return;
-
-    _tasks[index].status = DownloadStatus.cancelled;
-    _tasks[index].speed = '';
-    if (_activeTaskId == taskId) {
-      _activeTaskId = null;
-    }
-    await _saveTasksToStorage();
-    notifyListeners();
-
-    await NativeBridge.instance.cancelDownload(taskId);
-    if (!_isQueuePaused) {
+    if (index != -1) {
+      _tasks[index].status = DownloadStatus.cancelled;
+      _tasks[index].speed = '';
+      if (_activeTaskId == taskId) {
+        _activeTaskId = null;
+      }
+      _saveTasksToStorage();
+      notifyListeners();
+      await NativeBridge.instance.cancelDownload(taskId);
       _triggerNextQueue();
     }
   }
 
   void removeTask(String taskId) {
+    _tasks.removeWhere((t) => t.id == taskId);
     if (_activeTaskId == taskId) {
       _activeTaskId = null;
     }
-    _tasks.removeWhere((t) => t.id == taskId);
     _saveTasksToStorage();
     notifyListeners();
-    if (!_isQueuePaused) {
-      _triggerNextQueue();
-    }
   }
 
   void clearErrors() {
@@ -626,8 +731,7 @@ class DownloadProvider extends ChangeNotifier {
   void clearCompleted() {
     _tasks.removeWhere((t) =>
         t.status == DownloadStatus.completed ||
-        t.status == DownloadStatus.cancelled ||
-        t.status == DownloadStatus.error);
+        t.status == DownloadStatus.cancelled);
     _saveTasksToStorage();
     notifyListeners();
   }

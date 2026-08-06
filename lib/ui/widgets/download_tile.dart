@@ -24,30 +24,59 @@ class DownloadTile extends StatelessWidget {
     final isDownloading = task.status == DownloadStatus.downloading;
     final isPaused = task.status == DownloadStatus.paused;
     final isError = task.status == DownloadStatus.error;
+    final hasThumbnail = task.thumbnail != null && task.thumbnail!.isNotEmpty;
 
     return AmoledCard(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: _getStatusBgColor(),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: _getStatusColor().withValues(alpha: 0.3),
-                    width: 1,
+              // Thumbnail or Icon Container
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  width: 64,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: _getStatusBgColor(),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _getStatusColor().withValues(alpha: 0.3),
+                      width: 1,
+                    ),
                   ),
-                ),
-                child: Icon(
-                  _getStatusIcon(),
-                  color: _getStatusColor(),
-                  size: 22,
+                  child: hasThumbnail
+                      ? Image.network(
+                          task.thumbnail!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => Center(
+                            child: Icon(
+                              _getStatusIcon(),
+                              color: _getStatusColor(),
+                              size: 24,
+                            ),
+                          ),
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Center(
+                              child: Icon(
+                                _getStatusIcon(),
+                                color: _getStatusColor(),
+                                size: 24,
+                              ),
+                            );
+                          },
+                        )
+                      : Center(
+                          child: Icon(
+                            _getStatusIcon(),
+                            color: _getStatusColor(),
+                            size: 24,
+                          ),
+                        ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -63,7 +92,7 @@ class DownloadTile extends StatelessWidget {
                         color: AmoledTheme.pureWhite,
                         fontSize: 13.5,
                         fontWeight: FontWeight.w600,
-                        height: 1.3,
+                        height: 1.25,
                       ),
                     ),
                     const SizedBox(height: 5),
@@ -80,14 +109,14 @@ class DownloadTile extends StatelessWidget {
                             _getStatusLabel(),
                             style: TextStyle(
                               color: _getStatusColor(),
-                              fontSize: 11,
+                              fontSize: 10.5,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                         ),
                         if (task.durationSeconds != null &&
                             task.durationSeconds! > 0) ...[
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           Text(
                             task.formattedDuration,
                             style: const TextStyle(
@@ -101,7 +130,7 @@ class DownloadTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _buildActionButtons(),
             ],
           ),

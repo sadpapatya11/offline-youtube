@@ -78,18 +78,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AmoledTheme.pureBlack,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.black.withValues(alpha: 0.4),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AmoledTheme.pureWhite),
+          icon: const Icon(Icons.arrow_back_ios_new_rounded,
+              color: AmoledTheme.pureWhite),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           widget.video.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 16, color: AmoledTheme.pureWhite),
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: AmoledTheme.pureWhite,
+          ),
         ),
       ),
       body: Center(
@@ -129,112 +135,166 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           child: VideoPlayer(_controller),
                         ),
                         if (_showControls) ...[
+                          // Dark overlay backdrop
                           Container(
-                            color: Colors.black45,
+                            color: Colors.black38,
                           ),
-                          // Play/Pause / Rewind / Fast Forward Controls
+                          // Center Play/Pause / Rewind / Fast Forward Controls
                           Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              IconButton(
-                                iconSize: 36,
-                                icon: const Icon(Icons.replay_10_rounded,
-                                    color: AmoledTheme.pureWhite),
-                                onPressed: () {
-                                  final newPos = _controller.value.position -
-                                      const Duration(seconds: 10);
-                                  _controller.seekTo(newPos < Duration.zero
-                                      ? Duration.zero
-                                      : newPos);
-                                },
-                              ),
-                              const SizedBox(width: 24),
-                              IconButton(
-                                iconSize: 54,
-                                icon: Icon(
-                                  _controller.value.isPlaying
-                                      ? Icons.pause_circle_filled_rounded
-                                      : Icons.play_circle_filled_rounded,
-                                  color: AmoledTheme.pureWhite,
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.5),
+                                  shape: BoxShape.circle,
                                 ),
-                                onPressed: () {
-                                  setState(() {
-                                    _controller.value.isPlaying
-                                        ? _controller.pause()
-                                        : _controller.play();
-                                  });
-                                },
+                                child: IconButton(
+                                  iconSize: 36,
+                                  icon: const Icon(Icons.replay_10_rounded,
+                                      color: AmoledTheme.pureWhite),
+                                  onPressed: () {
+                                    final newPos = _controller.value.position -
+                                        const Duration(seconds: 10);
+                                    _controller.seekTo(newPos < Duration.zero
+                                        ? Duration.zero
+                                        : newPos);
+                                  },
+                                ),
                               ),
-                              const SizedBox(width: 24),
-                              IconButton(
-                                iconSize: 36,
-                                icon: const Icon(Icons.forward_10_rounded,
-                                    color: AmoledTheme.pureWhite),
-                                onPressed: () {
-                                  final newPos = _controller.value.position +
-                                      const Duration(seconds: 10);
-                                  _controller.seekTo(newPos);
-                                },
+                              const SizedBox(width: 28),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: IconButton(
+                                  iconSize: 64,
+                                  icon: Icon(
+                                    _controller.value.isPlaying
+                                        ? Icons.pause_circle_filled_rounded
+                                        : Icons.play_circle_filled_rounded,
+                                    color: AmoledTheme.pureWhite,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _controller.value.isPlaying
+                                          ? _controller.pause()
+                                          : _controller.play();
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 28),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.5),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: IconButton(
+                                  iconSize: 36,
+                                  icon: const Icon(Icons.forward_10_rounded,
+                                      color: AmoledTheme.pureWhite),
+                                  onPressed: () {
+                                    final newPos = _controller.value.position +
+                                        const Duration(seconds: 10);
+                                    _controller.seekTo(newPos);
+                                  },
+                                ),
                               ),
                             ],
                           ),
-                          // Bottom Timeline and Duration
+                          // Bottom Timeline and Duration with Safe Area and Elevated Position
                           Positioned(
-                            bottom: 16,
-                            left: 16,
-                            right: 16,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                SliderTheme(
-                                  data: SliderTheme.of(context).copyWith(
-                                    thumbColor: AmoledTheme.pureWhite,
-                                    activeTrackColor: AmoledTheme.pureWhite,
-                                    inactiveTrackColor: AmoledTheme.accentGray,
-                                    trackHeight: 3,
-                                    thumbShape: const RoundSliderThumbShape(
-                                        enabledThumbRadius: 6),
-                                  ),
-                                  child: Slider(
-                                    value: _controller
-                                        .value.position.inMilliseconds
-                                        .toDouble()
-                                        .clamp(
-                                            0.0,
-                                            _controller
-                                                .value.duration.inMilliseconds
-                                                .toDouble()),
-                                    min: 0.0,
-                                    max: _controller
-                                        .value.duration.inMilliseconds
-                                        .toDouble(),
-                                    onChanged: (val) {
-                                      _controller.seekTo(
-                                          Duration(milliseconds: val.toInt()));
-                                    },
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            child: SafeArea(
+                              bottom: true,
+                              child: Container(
+                                padding: const EdgeInsets.only(
+                                  left: 16,
+                                  right: 16,
+                                  bottom: 32, // Elevated above Android 3-button and gesture bar
+                                  top: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.transparent,
+                                      Colors.black.withValues(alpha: 0.85),
+                                    ],
                                   ),
                                 ),
-                                Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(
-                                      _formatDuration(
-                                          _controller.value.position),
-                                      style: const TextStyle(
-                                          color: AmoledTheme.pureWhite,
-                                          fontSize: 12),
+                                    SliderTheme(
+                                      data: SliderTheme.of(context).copyWith(
+                                        thumbColor: AmoledTheme.pureWhite,
+                                        activeTrackColor: AmoledTheme.pureWhite,
+                                        inactiveTrackColor:
+                                            Colors.white.withValues(alpha: 0.3),
+                                        trackHeight: 4,
+                                        thumbShape:
+                                            const RoundSliderThumbShape(
+                                                enabledThumbRadius: 8),
+                                        overlayShape:
+                                            const RoundSliderOverlayShape(
+                                                overlayRadius: 16),
+                                      ),
+                                      child: Slider(
+                                        value: _controller
+                                            .value.position.inMilliseconds
+                                            .toDouble()
+                                            .clamp(
+                                                0.0,
+                                                _controller.value.duration
+                                                    .inMilliseconds
+                                                    .toDouble()),
+                                        min: 0.0,
+                                        max: _controller
+                                            .value.duration.inMilliseconds
+                                            .toDouble(),
+                                        onChanged: (val) {
+                                          _controller.seekTo(Duration(
+                                              milliseconds: val.toInt()));
+                                        },
+                                      ),
                                     ),
-                                    Text(
-                                      _formatDuration(
-                                          _controller.value.duration),
-                                      style: const TextStyle(
-                                          color: AmoledTheme.subText,
-                                          fontSize: 12),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            _formatDuration(
+                                                _controller.value.position),
+                                            style: const TextStyle(
+                                              color: AmoledTheme.pureWhite,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          Text(
+                                            _formatDuration(
+                                                _controller.value.duration),
+                                            style: TextStyle(
+                                              color: AmoledTheme.pureWhite
+                                                  .withValues(alpha: 0.7),
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         ],

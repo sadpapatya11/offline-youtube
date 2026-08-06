@@ -98,12 +98,24 @@ class StorageManager {
             final stat = await entity.stat();
             final title = fileName.substring(0, fileName.lastIndexOf('.'));
 
+            final baseWithoutExt =
+                entity.path.substring(0, entity.path.lastIndexOf('.'));
+            String? thumbPath;
+            for (final imgExt in ['jpg', 'jpeg', 'webp', 'png']) {
+              final candidate = '$baseWithoutExt.$imgExt';
+              if (File(candidate).existsSync()) {
+                thumbPath = candidate;
+                break;
+              }
+            }
+
             videos.add(VideoItem(
               id: entity.path.hashCode.toString(),
               title: title,
               filePath: entity.path,
               fileSizeBytes: stat.size,
               downloadedAt: stat.modified,
+              thumbnailPath: thumbPath,
             ));
           }
         }
@@ -122,11 +134,16 @@ class StorageManager {
       final file = File(item.filePath);
       if (await file.exists()) {
         await file.delete();
-        return true;
       }
+      if (item.thumbnailPath != null) {
+        final thumbFile = File(item.thumbnailPath!);
+        if (await thumbFile.exists()) {
+          await thumbFile.delete();
+        }
+      }
+      return true;
     } catch (e) {
       return false;
     }
-    return false;
   }
 }

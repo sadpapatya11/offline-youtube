@@ -12,9 +12,10 @@ class DownloadTask {
   final String id;
   final String url;
   String title;
-  final String? thumbnail;
-  final int? durationSeconds;
-  final int? estimatedSizeBytes;
+  String? thumbnail;
+  int? durationSeconds;
+  String? uploader;
+  int? estimatedSizeBytes;
   DownloadStatus status;
   double progress; // 0.0 - 100.0
   String speed;
@@ -28,6 +29,7 @@ class DownloadTask {
     required this.title,
     this.thumbnail,
     this.durationSeconds,
+    this.uploader,
     this.estimatedSizeBytes,
     this.status = DownloadStatus.queued,
     this.progress = 0.0,
@@ -62,14 +64,19 @@ class DownloadTask {
     int? etaSeconds,
     String? errorMessage,
     String? title,
+    String? thumbnail,
+    int? durationSeconds,
+    String? uploader,
+    int? estimatedSizeBytes,
   }) {
     return DownloadTask(
       id: id,
       url: url,
       title: title ?? this.title,
-      thumbnail: thumbnail,
-      durationSeconds: durationSeconds,
-      estimatedSizeBytes: estimatedSizeBytes,
+      thumbnail: thumbnail ?? this.thumbnail,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
+      uploader: uploader ?? this.uploader,
+      estimatedSizeBytes: estimatedSizeBytes ?? this.estimatedSizeBytes,
       status: status ?? this.status,
       progress: progress ?? this.progress,
       speed: speed ?? this.speed,
@@ -86,6 +93,7 @@ class DownloadTask {
       'title': title,
       'thumbnail': thumbnail,
       'durationSeconds': durationSeconds,
+      'uploader': uploader,
       'estimatedSizeBytes': estimatedSizeBytes,
       'status': status.name,
       'progress': progress,
@@ -113,6 +121,7 @@ class DownloadTask {
       title: json['title'] as String? ?? '',
       thumbnail: json['thumbnail'] as String?,
       durationSeconds: json['durationSeconds'] as int?,
+      uploader: json['uploader'] as String?,
       estimatedSizeBytes: json['estimatedSizeBytes'] as int?,
       status: parsedStatus,
       progress: (json['progress'] as num?)?.toDouble() ?? 0.0,

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../models/video_item.dart';
@@ -19,6 +20,9 @@ class VideoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dateFormat = DateFormat('dd.MM.yyyy HH:mm');
+    final hasLocalThumb = video.thumbnailPath != null &&
+        video.thumbnailPath!.isNotEmpty &&
+        File(video.thumbnailPath!).existsSync();
 
     return AmoledCard(
       onTap: onTap,
@@ -26,23 +30,60 @@ class VideoTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Container(
-            width: 60,
-            height: 60,
-            decoration: BoxDecoration(
-              color: AmoledTheme.accentGray,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AmoledTheme.borderDark),
-            ),
-            child: const Center(
-              child: Icon(
-                Icons.play_arrow_rounded,
-                color: AmoledTheme.pureWhite,
-                size: 32,
+          // Thumbnail or Icon Container
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              width: 68,
+              height: 48,
+              decoration: BoxDecoration(
+                color: AmoledTheme.accentGray,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AmoledTheme.borderDark),
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (hasLocalThumb)
+                    Image.file(
+                      File(video.thumbnailPath!),
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => const Center(
+                        child: Icon(
+                          Icons.play_arrow_rounded,
+                          color: AmoledTheme.pureWhite,
+                          size: 28,
+                        ),
+                      ),
+                    )
+                  else
+                    const Center(
+                      child: Icon(
+                        Icons.play_arrow_rounded,
+                        color: AmoledTheme.pureWhite,
+                        size: 28,
+                      ),
+                    ),
+                  // Subtle play icon badge overlay
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow_rounded,
+                        color: AmoledTheme.pureWhite,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -53,8 +94,9 @@ class VideoTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AmoledTheme.pureWhite,
-                    fontSize: 14,
+                    fontSize: 13.5,
                     fontWeight: FontWeight.w600,
+                    height: 1.25,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -63,21 +105,21 @@ class VideoTile extends StatelessWidget {
                     Text(
                       video.formattedSize,
                       style: const TextStyle(
-                        color: AmoledTheme.subText,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF00E676),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     const Text(
                       '•',
                       style: TextStyle(color: AmoledTheme.borderDark),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     Text(
                       dateFormat.format(video.downloadedAt),
                       style: const TextStyle(
-                        color: Color(0xFF777777),
+                        color: Color(0xFF888888),
                         fontSize: 11,
                       ),
                     ),
@@ -90,6 +132,7 @@ class VideoTile extends StatelessWidget {
             icon: const Icon(
               Icons.more_vert,
               color: AmoledTheme.subText,
+              size: 20,
             ),
             onPressed: () => _showOptionsBottomSheet(context),
           ),

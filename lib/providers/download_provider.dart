@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
@@ -166,7 +167,23 @@ class DownloadProvider extends ChangeNotifier {
       return;
     }
 
-    // 2. Ağ kontrolü
+    // 2. Toplam video süresi kotası kontrolü
+    final downloadedVideos =
+        await StorageManager.instance.scanDownloadedVideos();
+    final totalDurationSec = downloadedVideos.fold<int>(
+        0, (sum, v) => sum + (v.durationSeconds ?? 0));
+    final maxDurationSec = _lastSettings!.maxVideoDurationHours * 3600;
+    if (totalDurationSec >= maxDurationSec) {
+      if (_activeTaskId != null || isDownloadingActive) {
+        await _pauseForMobileDataGuard(
+          '⚠️ Belirlenen toplam video süresi kotası (${_lastSettings!.maxVideoDurationHours} Saat) doldu. İndirme duraklatıldı.',
+        );
+      }
+      notifyListeners();
+      return;
+    }
+
+    // 3. Ağ kontrolü
     if (_lastSettings!.networkMode == NetworkRestrictionMode.anyWifi) {
       final isWifi = await NetworkManager.instance.isWifiConnected();
       _isWifiWaiting = !isWifi;
@@ -278,6 +295,30 @@ class DownloadProvider extends ChangeNotifier {
             task.speed = '';
             task.etaSeconds = 0;
             task.errorMessage = null;
+
+            // Video metadata kaydet (süreyi disk taramasında hatırlamak için)
+            try {
+              final dir = Directory(StorageManager.instance.currentDownloadPath);
+              if (dir.existsSync()) {
+                final files = dir.listSync();
+                for (final f in files) {
+                  if (f is File) {
+                    final name = f.path.split(Platform.pathSeparator).last;
+                    if (name.contains(task.title) ||
+                        (task.id.isNotEmpty && name.contains(task.id))) {
+                      StorageManager.instance.saveVideoMetadata(
+                        f.path,
+                        durationSeconds: task.durationSeconds,
+                        uploader: task.uploader,
+                        title: task.title,
+                        url: task.url,
+                      );
+                    }
+                  }
+                }
+              }
+            } catch (_) {}
+
             if (_activeTaskId == taskId) {
               _activeTaskId = null;
             }
@@ -417,6 +458,17 @@ class DownloadProvider extends ChangeNotifier {
       final maxBytes = currentSettings.maxStorageLimitGB * 1024 * 1024 * 1024;
       final usedBytes = await StorageManager.instance.getUsedStorageBytes();
       if (usedBytes >= maxBytes) {
+        notifyListeners();
+        return;
+      }
+
+      // 3. Toplam video süresi kotası kontrolü
+      final downloadedVideos =
+          await StorageManager.instance.scanDownloadedVideos();
+      final totalDurationSec = downloadedVideos.fold<int>(
+          0, (sum, v) => sum + (v.durationSeconds ?? 0));
+      final maxDurationSec = currentSettings.maxVideoDurationHours * 3600;
+      if (totalDurationSec >= maxDurationSec) {
         notifyListeners();
         return;
       }
@@ -619,7 +671,17 @@ class DownloadProvider extends ChangeNotifier {
       return 'Mevcut indirmeler belirlenen depolama sınırını (${settings.maxStorageLimitGB} GB) aşmış durumda. Lütfen yer açın veya kotayı artırın.';
     }
 
-    // 3. YouTube URL Doğrulama
+    // 3. Toplam Süre Kotası Kontrolü
+    final downloadedVideos =
+        await StorageManager.instance.scanDownloadedVideos();
+    final currentTotalSec = downloadedVideos.fold<int>(
+        0, (sum, v) => sum + (v.durationSeconds ?? 0));
+    final maxDurationSec = settings.maxVideoDurationHours * 3600;
+    if (currentTotalSec >= maxDurationSec) {
+      return 'Mevcut indirmeler belirlenen toplam süre kotasını (${settings.maxVideoDurationHours} Saat) doldurmuş durumda. Lütfen video silin veya süreyi artırın.';
+    }
+
+    // 4. YouTube URL Doğrulama
     if (!isValidYouTubeUrl(url)) {
       return 'Geçersiz YouTube bağlantısı. Lütfen geçerli bir video veya oynatma listesi URL\'si girin.';
     }
@@ -655,11 +717,18 @@ class DownloadProvider extends ChangeNotifier {
       final thumbnail = metadata['thumbnail'] as String?;
       final uploader = metadata['uploader'] as String?;
 
-      final maxDurationSeconds = settings.maxVideoDurationHours * 3600;
-      if (duration > 0 && duration > maxDurationSeconds) {
+      final downloadedVideos =
+          await StorageManager.instance.scanDownloadedVideos();
+      final currentTotalSec = downloadedVideos.fold<int>(
+          0, (sum, v) => sum + (v.durationSeconds ?? 0));
+      final maxDurationSec = settings.maxVideoDurationHours * 3600;
+
+      if (duration > 0 && (currentTotalSec + duration) > maxDurationSec) {
         task.status = DownloadStatus.error;
+        final totalHours =
+            ((currentTotalSec + duration) / 3600).toStringAsFixed(1);
         task.errorMessage =
-            'Video süresi (${(duration / 3600).toStringAsFixed(1)} sa), belirlenen sınırı (${settings.maxVideoDurationHours} sa) aşıyor.';
+            'Toplam video süresi ($totalHours sa), belirlenen toplam kotayı (${settings.maxVideoDurationHours} sa) aşacağı için eklenmedi.';
         _saveTasksToStorage();
         notifyListeners();
         return task.errorMessage;
@@ -711,7 +780,11 @@ class DownloadProvider extends ChangeNotifier {
         return 'Oynatma listesinde indirilebilir video bulunamadı.';
       }
 
-      final maxDurationSeconds = settings.maxVideoDurationHours * 3600;
+      final downloadedVideos =
+          await StorageManager.instance.scanDownloadedVideos();
+      int runningTotalSec = downloadedVideos.fold<int>(
+          0, (sum, v) => sum + (v.durationSeconds ?? 0));
+      final maxDurationSec = settings.maxVideoDurationHours * 3600;
       int addedCount = 0;
       int skippedCount = 0;
 
@@ -725,11 +798,12 @@ class DownloadProvider extends ChangeNotifier {
 
         if (videoUrl.isEmpty) continue;
 
-        if (duration > 0 && duration > maxDurationSeconds) {
+        if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) {
           skippedCount++;
           continue;
         }
 
+        runningTotalSec += duration;
         final taskId = '${DateTime.now().millisecondsSinceEpoch}_$i';
         final newTask = DownloadTask(
           id: taskId,
@@ -753,7 +827,7 @@ class DownloadProvider extends ChangeNotifier {
       }
 
       if (addedCount == 0 && skippedCount > 0) {
-        return 'Tüm videolar ($skippedCount adet) belirlenen süre sınırını (${settings.maxVideoDurationHours} sa) aştığı için eklenmedi.';
+        return 'Tüm videolar ($skippedCount adet) belirlenen toplam süre kotasını (${settings.maxVideoDurationHours} sa) aşacağı için eklenmedi.';
       }
 
       return null;

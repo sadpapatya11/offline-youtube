@@ -85,4 +85,18 @@ class LibraryProvider extends ChangeNotifier {
     }
     return '${size.toStringAsFixed(1)} ${suffixes[i]}';
   }
+
+  int get totalDurationSeconds =>
+      _videos.fold<int>(0, (sum, v) => sum + (v.durationSeconds ?? 0));
+
+  String get formattedTotalDuration {
+    final totalSec = totalDurationSeconds;
+    if (totalSec <= 0) return '0 dk';
+    final hours = totalSec ~/ 3600;
+    final minutes = (totalSec % 3600) ~/ 60;
+    if (hours > 0) {
+      return minutes > 0 ? '$hours sa $minutes dk' : '$hours sa';
+    }
+    return '$minutes dk';
+  }
 }

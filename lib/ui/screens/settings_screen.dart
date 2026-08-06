@@ -350,7 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(width: 10),
                       const Text(
-                        'Maksimum Video Uzunluğu',
+                        'Toplam Video Süresi Kotası',
                         style: TextStyle(
                           color: AmoledTheme.pureWhite,
                           fontSize: 15,
@@ -364,11 +364,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text(
-                        'Maksimum Süre:',
+                        'Mevcut Kullanım / Kota:',
                         style: TextStyle(color: AmoledTheme.pureWhite, fontSize: 13),
                       ),
                       Text(
-                        '${settings.maxVideoDurationHours} Saat',
+                        '${libraryProvider.formattedTotalDuration} / ${settings.maxVideoDurationHours} Saat',
                         style: const TextStyle(
                           color: AmoledTheme.brandRed,
                           fontWeight: FontWeight.bold,
@@ -390,7 +390,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   const Text(
-                    'Bu süreden daha uzun olan videolar indirme öncesi metadata kontrolüyle filtrelenir.',
+                    'İndirilen tüm videoların toplam uzunluğu bu kotayı aşamaz. Kota dolduğunda indirmeler duraklatılır.',
                     style: TextStyle(color: Color(0xFF777777), fontSize: 11),
                   ),
                 ],
@@ -535,7 +535,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 children: [
                   Text(
-                    'Offline YouTube v1.3.0 (Build 5)',
+                    'Offline YouTube v1.3.1 (Build 6)',
                     style: TextStyle(
                       color: AmoledTheme.pureWhite.withValues(alpha: 0.6),
                       fontSize: 12,
@@ -545,7 +545,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Geri Dönüşüm Kutusu • Kaydırarak Silme • Ağ Otomasyonu',
+                    'Toplam Süre Kotası • Geri Dönüşüm Kutusu • Otomasyon',
                     style: TextStyle(
                       color: AmoledTheme.subText.withValues(alpha: 0.5),
                       fontSize: 11,

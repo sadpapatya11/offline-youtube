@@ -198,7 +198,7 @@ void main() {
       expect(find.text('Ağ ve Bağlantı Kuralı'), findsOneWidget);
       expect(find.text('Sadece Wi-Fi ile İndir'), findsOneWidget);
       expect(find.text('Depolama Kotası Yöneticisi'), findsOneWidget);
-      expect(find.text('Maksimum Video Uzunluğu'), findsOneWidget);
+      expect(find.text('Toplam Video Süresi Kotası'), findsOneWidget);
       expect(find.text('Gizli Depolama ve İzinler'), findsOneWidget);
       expect(find.text('yt-dlp Motorunu Güncelle'), findsOneWidget);
 

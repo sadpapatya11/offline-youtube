@@ -130,7 +130,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
       expect(find.text('AYARLAR VE KISITLAMALAR'), findsOneWidget);
       expect(find.text('Depolama Kotası Yöneticisi'), findsOneWidget);
-      expect(find.text('Maksimum Video Uzunluğu'), findsOneWidget);
+      expect(find.text('Toplam Video Süresi Kotası'), findsOneWidget);
       expect(find.text('Ağ ve Bağlantı Kuralı'), findsOneWidget);
     });
   });

@@ -96,6 +96,28 @@ class StorageManager {
     }
   }
 
+  Future<void> saveVideoMetadata(
+    String videoFilePath, {
+    int? durationSeconds,
+    String? uploader,
+    String? title,
+    String? url,
+  }) async {
+    try {
+      final dotIndex = videoFilePath.lastIndexOf('.');
+      if (dotIndex == -1) return;
+      final baseWithoutExt = videoFilePath.substring(0, dotIndex);
+      final metaFile = File('$baseWithoutExt.meta.json');
+      final data = {
+        'durationSeconds': durationSeconds,
+        'uploader': uploader,
+        'title': title,
+        'url': url,
+      };
+      await metaFile.writeAsString(jsonEncode(data));
+    } catch (_) {}
+  }
+
   Future<List<VideoItem>> scanDownloadedVideos() async {
     final List<VideoItem> videos = [];
     try {
@@ -122,11 +144,25 @@ class StorageManager {
               }
             }
 
+            int? durationSeconds;
+            String? uploader;
+            final metaFile = File('$baseWithoutExt.meta.json');
+            if (await metaFile.exists()) {
+              try {
+                final content = await metaFile.readAsString();
+                final metaJson = jsonDecode(content) as Map<String, dynamic>;
+                durationSeconds = metaJson['durationSeconds'] as int?;
+                uploader = metaJson['uploader'] as String?;
+              } catch (_) {}
+            }
+
             videos.add(VideoItem(
               id: entity.path.hashCode.toString(),
               title: title,
               filePath: entity.path,
               fileSizeBytes: stat.size,
+              durationSeconds: durationSeconds,
+              uploader: uploader,
               downloadedAt: stat.modified,
               thumbnailPath: thumbPath,
             ));
@@ -187,6 +223,13 @@ class StorageManager {
 
       await srcFile.rename(destFilePath);
 
+      // Taşı: .meta.json
+      final srcMeta = File('${item.filePath.substring(0, item.filePath.lastIndexOf('.'))}.meta.json');
+      if (await srcMeta.exists()) {
+        final destMeta = File('${destFilePath.substring(0, destFilePath.lastIndexOf('.'))}.meta.json');
+        await srcMeta.rename(destMeta.path);
+      }
+
       String? destThumbPath;
       if (item.thumbnailPath != null) {
         final srcThumb = File(item.thumbnailPath!);
@@ -235,6 +278,13 @@ class StorageManager {
         await srcFile.rename(destFilePath);
       }
 
+      // Taşı geri: .meta.json
+      final srcMeta = File('${trashed.video.filePath.substring(0, trashed.video.filePath.lastIndexOf('.'))}.meta.json');
+      if (await srcMeta.exists()) {
+        final destMeta = File('${destFilePath.substring(0, destFilePath.lastIndexOf('.'))}.meta.json');
+        await srcMeta.rename(destMeta.path);
+      }
+
       if (trashed.video.thumbnailPath != null) {
         final srcThumb = File(trashed.video.thumbnailPath!);
         final thumbName =
@@ -267,6 +317,8 @@ class StorageManager {
           try {
             final f = File(item.video.filePath);
             if (await f.exists()) await f.delete();
+            final mf = File('${item.video.filePath.substring(0, item.video.filePath.lastIndexOf('.'))}.meta.json');
+            if (await mf.exists()) await mf.delete();
             if (item.video.thumbnailPath != null) {
               final tf = File(item.video.thumbnailPath!);
               if (await tf.exists()) await tf.delete();
@@ -292,6 +344,8 @@ class StorageManager {
     try {
       final f = File(trashed.video.filePath);
       if (await f.exists()) await f.delete();
+      final mf = File('${trashed.video.filePath.substring(0, trashed.video.filePath.lastIndexOf('.'))}.meta.json');
+      if (await mf.exists()) await mf.delete();
       if (trashed.video.thumbnailPath != null) {
         final tf = File(trashed.video.thumbnailPath!);
         if (await tf.exists()) await tf.delete();
@@ -314,6 +368,8 @@ class StorageManager {
         try {
           final f = File(item.video.filePath);
           if (await f.exists()) await f.delete();
+          final mf = File('${item.video.filePath.substring(0, item.video.filePath.lastIndexOf('.'))}.meta.json');
+          if (await mf.exists()) await mf.delete();
           if (item.video.thumbnailPath != null) {
             final tf = File(item.video.thumbnailPath!);
             if (await tf.exists()) await tf.delete();

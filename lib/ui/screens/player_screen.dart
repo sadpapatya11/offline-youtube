@@ -74,31 +74,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (savedPos > 2000 && savedPos < (totalDuration - 4000)) {
         await _controller.seekTo(Duration(milliseconds: savedPos));
         _lastSavedPosMs = savedPos;
-        if (mounted) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              backgroundColor: const Color(0xFF1E1E1E),
-              behavior: SnackBarBehavior.floating,
-              content: Text(
-                'Kaldığınız yerden devam ediliyor: ${_formatDuration(Duration(milliseconds: savedPos))}',
-                style: const TextStyle(
-                  color: AmoledTheme.pureWhite,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              action: SnackBarAction(
-                label: 'Başa Dön',
-                textColor: const Color(0xFF00E676),
-                onPressed: () {
-                  _controller.seekTo(Duration.zero);
-                  PlaybackManager.instance.savePosition(widget.video.id, 0);
-                },
-              ),
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        }
       }
 
       _controller.play();

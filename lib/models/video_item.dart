@@ -9,6 +9,7 @@ class VideoItem {
   final String? uploader;
   final DateTime downloadedAt;
   final String? thumbnailPath;
+  final String? subtitlePath;
 
   VideoItem({
     required this.id,
@@ -19,6 +20,7 @@ class VideoItem {
     this.uploader,
     required this.downloadedAt,
     this.thumbnailPath,
+    this.subtitlePath,
   });
 
   bool get exists => File(filePath).existsSync();
@@ -55,6 +57,7 @@ class VideoItem {
         'uploader': uploader,
         'downloadedAt': downloadedAt.toIso8601String(),
         'thumbnailPath': thumbnailPath,
+        'subtitlePath': subtitlePath,
       };
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
@@ -66,5 +69,6 @@ class VideoItem {
         uploader: json['uploader'] as String?,
         downloadedAt: DateTime.parse(json['downloadedAt'] as String),
         thumbnailPath: json['thumbnailPath'] as String?,
+        subtitlePath: json['subtitlePath'] as String?,
       );
 }

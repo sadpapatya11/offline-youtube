@@ -144,6 +144,30 @@ class StorageManager {
               }
             }
 
+            // Türkçe Altyazı dosyası arama (.tr.vtt, .tr.srt, .vtt, .srt)
+            String? subtitlePath;
+            for (final subExt in [
+              'tr.vtt',
+              'tr-orig.vtt',
+              'tr-TR.vtt',
+              'tr.srt',
+              'vtt',
+              'srt'
+            ]) {
+              final subCandidate = '$baseWithoutExt.$subExt';
+              if (File(subCandidate).existsSync()) {
+                subtitlePath = subCandidate;
+                break;
+              }
+            }
+
+            int exactSize = 0;
+            try {
+              exactSize = await entity.length();
+            } catch (_) {
+              exactSize = stat.size;
+            }
+
             int? durationSeconds;
             String? uploader;
             final metaFile = File('$baseWithoutExt.meta.json');
@@ -160,11 +184,12 @@ class StorageManager {
               id: entity.path.hashCode.toString(),
               title: title,
               filePath: entity.path,
-              fileSizeBytes: stat.size,
+              fileSizeBytes: exactSize,
               durationSeconds: durationSeconds,
               uploader: uploader,
               downloadedAt: stat.modified,
               thumbnailPath: thumbPath,
+              subtitlePath: subtitlePath,
             ));
           }
         }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/app_settings.dart';
 import '../services/native_bridge.dart';
@@ -8,6 +9,7 @@ class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = const AppSettings();
   bool _hasStoragePermission = false;
   bool _isLoading = true;
+  Timer? _wifiAutoReenableTimer;
 
   AppSettings get settings => _settings;
   bool get hasStoragePermission => _hasStoragePermission;
@@ -19,10 +21,38 @@ class SettingsProvider extends ChangeNotifier {
     _init();
   }
 
+  @override
+  void dispose() {
+    _wifiAutoReenableTimer?.cancel();
+    super.dispose();
+  }
+
   Future<void> _init() async {
     _settings = await SettingsManager.instance.loadSettings();
     await StorageManager.instance.initDirectory(_settings.customDownloadPath);
     await checkPermission();
+
+    // Sadece Wi-Fi 1 saat sonra otomatik tekrar açılma kontrolü
+    if (_settings.networkMode == NetworkRestrictionMode.allNetworks) {
+      final disabledTime =
+          await SettingsManager.instance.getWifiDisabledTimestamp();
+      if (disabledTime != null) {
+        final elapsed = DateTime.now().millisecondsSinceEpoch - disabledTime;
+        const oneHourMs = 60 * 60 * 1000;
+        if (elapsed >= oneHourMs) {
+          // 1 saat dolmuş -> Otomatik olarak Sadece Wi-Fi moduna geri al
+          await setOnlyWifi(true);
+        } else {
+          // Kalan süre için zamanlayıcı başlat
+          final remainingMs = oneHourMs - elapsed;
+          _wifiAutoReenableTimer?.cancel();
+          _wifiAutoReenableTimer = Timer(Duration(milliseconds: remainingMs), () {
+            setOnlyWifi(true);
+          });
+        }
+      }
+    }
+
     _isLoading = false;
     notifyListeners();
   }
@@ -59,6 +89,19 @@ class SettingsProvider extends ChangeNotifier {
   }
 
   Future<void> setOnlyWifi(bool onlyWifi) async {
+    _wifiAutoReenableTimer?.cancel();
+
+    if (!onlyWifi) {
+      // Sadece Wi-Fi kapatıldı (Mobil veri açıldı): 1 saat sonra otomatik olarak tekrar açılacak
+      await SettingsManager.instance.saveWifiDisabledTimestamp(
+          DateTime.now().millisecondsSinceEpoch);
+      _wifiAutoReenableTimer = Timer(const Duration(hours: 1), () {
+        setOnlyWifi(true);
+      });
+    } else {
+      await SettingsManager.instance.clearWifiDisabledTimestamp();
+    }
+
     final mode = onlyWifi
         ? NetworkRestrictionMode.anyWifi
         : NetworkRestrictionMode.allNetworks;

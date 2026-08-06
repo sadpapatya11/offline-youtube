@@ -1,8 +1,21 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../../models/video_item.dart';
 import '../theme/amoled_theme.dart';
+
+class SubtitleCue {
+  final Duration start;
+  final Duration end;
+  final String text;
+
+  SubtitleCue({
+    required this.start,
+    required this.end,
+    required this.text,
+  });
+}
 
 class PlayerScreen extends StatefulWidget {
   final VideoItem video;
@@ -19,10 +32,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _showControls = true;
   String? _error;
 
+  // Hız Yönetimi
+  double _baseSpeed = 1.0;
+  bool _isHolding2X = false;
+
+  // Altyazı Yönetimi (Varsayılan olarak KAPALI)
+  bool _showSubtitles = false;
+  List<SubtitleCue> _subtitleCues = [];
+  String _currentSubtitleText = '';
+
   @override
   void initState() {
     super.initState();
     _initPlayer();
+    _loadSubtitles();
   }
 
   Future<void> _initPlayer() async {
@@ -37,9 +60,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _controller = VideoPlayerController.file(file);
       await _controller.initialize();
-      _controller.addListener(() {
-        if (mounted) setState(() {});
-      });
+      _controller.addListener(_onPlayerTick);
       _controller.play();
 
       if (mounted) {
@@ -56,12 +77,211 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  void _onPlayerTick() {
+    if (!mounted || !_isInitialized) return;
+
+    // Altyazı güncellemesi
+    if (_showSubtitles && _subtitleCues.isNotEmpty) {
+      final pos = _controller.value.position;
+      final activeCue = _subtitleCues.firstWhere(
+        (cue) => pos >= cue.start && pos <= cue.end,
+        orElse: () => SubtitleCue(
+          start: Duration.zero,
+          end: Duration.zero,
+          text: '',
+        ),
+      );
+      if (activeCue.text != _currentSubtitleText) {
+        setState(() {
+          _currentSubtitleText = activeCue.text;
+        });
+      }
+    } else if (_currentSubtitleText.isNotEmpty) {
+      setState(() {
+        _currentSubtitleText = '';
+      });
+    } else {
+      setState(() {});
+    }
+  }
+
+  Future<void> _loadSubtitles() async {
+    String? path = widget.video.subtitlePath;
+
+    // Eğer modelde subtitlePath yoksa dosya sisteminde ara
+    if (path == null || !File(path).existsSync()) {
+      final base = widget.video.filePath.substring(
+          0, widget.video.filePath.lastIndexOf('.'));
+      for (final ext in [
+        'tr.vtt',
+        'tr-orig.vtt',
+        'tr-TR.vtt',
+        'tr.srt',
+        'vtt',
+        'srt'
+      ]) {
+        final candidate = '$base.$ext';
+        if (File(candidate).existsSync()) {
+          path = candidate;
+          break;
+        }
+      }
+    }
+
+    if (path != null && File(path).existsSync()) {
+      try {
+        final content = await File(path).readAsString();
+        final cues = _parseSubtitleFile(content);
+        if (mounted) {
+          setState(() {
+            _subtitleCues = cues;
+          });
+        }
+      } catch (_) {}
+    }
+  }
+
+  List<SubtitleCue> _parseSubtitleFile(String content) {
+    final List<SubtitleCue> cues = [];
+    final lines = content.split(RegExp(r'\r?\n'));
+
+    Duration? start;
+    Duration? end;
+    final List<String> textLines = [];
+
+    for (int i = 0; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) {
+        if (start != null && end != null && textLines.isNotEmpty) {
+          final cleanText = textLines
+              .join('\n')
+              .replaceAll(RegExp(r'<[^>]*>'), '') // HTML/VTT tag temizliği
+              .trim();
+          if (cleanText.isNotEmpty) {
+            cues.add(SubtitleCue(start: start, end: end, text: cleanText));
+          }
+        }
+        start = null;
+        end = null;
+        textLines.clear();
+        continue;
+      }
+
+      if (line.contains('-->')) {
+        final parts = line.split('-->');
+        if (parts.length == 2) {
+          start = _parseTimestamp(parts[0].trim());
+          end = _parseTimestamp(parts[1].trim().split(' ').first);
+        }
+      } else if (start != null && end != null) {
+        // İndeks satırlarını veya format satırlarını atla
+        if (!RegExp(r'^\d+$').hasMatch(line) && !line.startsWith('NOTE') && !line.startsWith('WEBVTT')) {
+          textLines.add(line);
+        }
+      }
+    }
+
+    if (start != null && end != null && textLines.isNotEmpty) {
+      final cleanText = textLines
+          .join('\n')
+          .replaceAll(RegExp(r'<[^>]*>'), '')
+          .trim();
+      if (cleanText.isNotEmpty) {
+        cues.add(SubtitleCue(start: start, end: end, text: cleanText));
+      }
+    }
+
+    return cues;
+  }
+
+  Duration _parseTimestamp(String timestamp) {
+    final clean = timestamp.replaceAll(',', '.');
+    final parts = clean.split(':');
+    int h = 0;
+    int m = 0;
+    double s = 0.0;
+
+    if (parts.length == 3) {
+      h = int.tryParse(parts[0]) ?? 0;
+      m = int.tryParse(parts[1]) ?? 0;
+      s = double.tryParse(parts[2]) ?? 0.0;
+    } else if (parts.length == 2) {
+      m = int.tryParse(parts[0]) ?? 0;
+      s = double.tryParse(parts[1]) ?? 0.0;
+    }
+
+    final totalMs = (h * 3600 + m * 60 + s) * 1000;
+    return Duration(milliseconds: totalMs.round());
+  }
+
   @override
   void dispose() {
     if (_isInitialized) {
+      _controller.removeListener(_onPlayerTick);
       _controller.dispose();
     }
     super.dispose();
+  }
+
+  void _setSpeed(double speed) {
+    setState(() {
+      _baseSpeed = speed;
+    });
+    _controller.setPlaybackSpeed(speed);
+  }
+
+  void _showSpeedPicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AmoledTheme.cardDark,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Oynatma Hızı',
+                  style: TextStyle(
+                    color: AmoledTheme.pureWhite,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                ...speeds.map((s) {
+                  final isSelected = (_baseSpeed == s);
+                  return ListTile(
+                    title: Text(
+                      s == 1.0 ? '1.0x (Normal)' : '${s}x',
+                      style: TextStyle(
+                        color: isSelected
+                            ? const Color(0xFF00E676)
+                            : AmoledTheme.pureWhite,
+                        fontWeight:
+                            isSelected ? FontWeight.bold : FontWeight.normal,
+                      ),
+                    ),
+                    trailing: isSelected
+                        ? const Icon(Icons.check, color: Color(0xFF00E676))
+                        : null,
+                    onTap: () {
+                      _setSpeed(s);
+                      Navigator.pop(ctx);
+                    },
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   String _formatDuration(Duration duration) {
@@ -80,7 +300,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       backgroundColor: AmoledTheme.pureBlack,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.4),
+        backgroundColor: Colors.black.withValues(alpha: 0.5),
         elevation: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded,
@@ -92,11 +312,55 @@ class _PlayerScreenState extends State<PlayerScreen> {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
-            fontSize: 15,
+            fontSize: 14,
             fontWeight: FontWeight.w600,
             color: AmoledTheme.pureWhite,
           ),
         ),
+        actions: [
+          // Altyazı Butonu (Varsa aktifleşir / Açılıp kapatılabilir)
+          if (_subtitleCues.isNotEmpty)
+            IconButton(
+              icon: Icon(
+                _showSubtitles ? Icons.closed_caption_rounded : Icons.closed_caption_off_rounded,
+                color: _showSubtitles ? const Color(0xFF00E676) : AmoledTheme.subText,
+              ),
+              tooltip: _showSubtitles ? 'Altyazıyı Kapat' : 'Türkçe Altyazıyı Aç',
+              onPressed: () {
+                setState(() {
+                  _showSubtitles = !_showSubtitles;
+                });
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(_showSubtitles ? 'Türkçe altyazı açıldı.' : 'Altyazı kapatıldı.'),
+                    duration: const Duration(seconds: 1),
+                  ),
+                );
+              },
+            ),
+          // Hız Seçici Butonu
+          TextButton(
+            onPressed: _showSpeedPicker,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF222222),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Text(
+                '${_baseSpeed}x',
+                style: const TextStyle(
+                  color: AmoledTheme.pureWhite,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Center(
         child: _error != null
@@ -122,10 +386,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         AlwaysStoppedAnimation<Color>(AmoledTheme.pureWhite),
                   )
                 : GestureDetector(
+                    behavior: HitTestBehavior.opaque,
                     onTap: () {
                       setState(() {
                         _showControls = !_showControls;
                       });
+                    },
+                    // Ekrana basılı tutulduğunda 2 kat hızlı oynatma
+                    onLongPressStart: (_) {
+                      setState(() {
+                        _isHolding2X = true;
+                      });
+                      _controller.setPlaybackSpeed(2.0);
+                    },
+                    onLongPressEnd: (_) {
+                      setState(() {
+                        _isHolding2X = false;
+                      });
+                      _controller.setPlaybackSpeed(_baseSpeed);
                     },
                     child: Stack(
                       alignment: Alignment.center,
@@ -134,6 +412,68 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           aspectRatio: _controller.value.aspectRatio,
                           child: VideoPlayer(_controller),
                         ),
+
+                        // 2X HIZLI OYNATILIYOR ROZETİ (Basılı Tutulduğunda)
+                        if (_isHolding2X)
+                          Positioned(
+                            top: 80,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.85),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                    color: const Color(0xFFFFCC00), width: 1.5),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.fast_forward_rounded,
+                                      color: Color(0xFFFFCC00), size: 18),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    '2X Hızında Oynatılıyor',
+                                    style: TextStyle(
+                                      color: AmoledTheme.pureWhite,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                        // ALTYAZI KATMANI
+                        if (_showSubtitles && _currentSubtitleText.isNotEmpty)
+                          Positioned(
+                            bottom: _showControls ? 110 : 40,
+                            left: 20,
+                            right: 20,
+                            child: Center(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.8),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  _currentSubtitleText,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: AmoledTheme.pureWhite,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.25,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+
+                        // KONTROL DÜĞMELERİ KATMANI
                         if (_showControls) ...[
                           // Dark overlay backdrop
                           Container(
@@ -214,7 +554,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 padding: const EdgeInsets.only(
                                   left: 16,
                                   right: 16,
-                                  bottom: 32, // Elevated above Android 3-button and gesture bar
+                                  bottom: 32, // Elevated above Android gesture/button bar
                                   top: 12,
                                 ),
                                 decoration: BoxDecoration(

@@ -221,6 +221,11 @@ object YtDlpNativeManager {
                 addOption("--continue")
                 addOption("--ignore-errors")
                 addOption("--no-playlist") // Her video tek tek bağımsız indirilir
+                // Türkçe Altyazı Desteği (Varsa Türkçe altyazı veya otomatik Türkçe çeviri indir)
+                addOption("--write-subs")
+                addOption("--write-auto-subs")
+                addOption("--sub-lang", "tr,tr-orig,tr-TR,en")
+                addOption("--sub-format", "vtt/srt/best")
                 // Anti-Ban & Doğal Video İzleme Akışı
                 addOption("--limit-rate", "3.5M") // ~3.5 MB/s doğal insan akış hızı
                 addOption("--sleep-interval", "2") // İstekler arası 2 saniye dinlenme

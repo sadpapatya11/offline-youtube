@@ -19,6 +19,7 @@ class DownloadProvider extends ChangeNotifier {
   bool _isQueuePaused = false;
   bool _isWifiWaiting = false;
   bool _isLoaded = false;
+  bool _isAutoUpdatingEngine = false;
   AppSettings? _lastSettings;
   VoidCallback? onLibraryNeedsRefresh;
 
@@ -341,7 +342,7 @@ class DownloadProvider extends ChangeNotifier {
                 task.status = DownloadStatus.paused;
                 task.speed = '';
                 task.errorMessage =
-                    '⚠️ Ağ bağlantısı kesildi. İnternet/Wi-Fi sağlandığında indirme otomatik devam edecek.';
+                    '⚠️ Ağ bağlantısı kesildi. İnternet sağlandığında otomatik devam edecek.';
                 if (_activeTaskId == taskId) {
                   _activeTaskId = null;
                 }
@@ -350,8 +351,25 @@ class DownloadProvider extends ChangeNotifier {
                 }
                 _saveTasksToStorage();
                 notifyListeners();
-                // Ağ yokken diğer görevleri peş peşe patlatmamak için beklet
+                // Ağ yokken diğer görevleri peş peşe hata durumuna düşürmemek için kuyruğu durdur
                 return;
+              }
+
+              // İndirmeden kaynaklı hata (yt-dlp motor hatası / bot kontrolü vb.): Arka planda otomatik güncelle
+              if (!_isAutoUpdatingEngine) {
+                _isAutoUpdatingEngine = true;
+                NativeBridge.instance.updateYtDlp().then((updated) {
+                  _isAutoUpdatingEngine = false;
+                  if (updated) {
+                    task.status = DownloadStatus.queued;
+                    task.errorMessage = null;
+                    _saveTasksToStorage();
+                    notifyListeners();
+                    _triggerNextQueue();
+                  }
+                }).catchError((_) {
+                  _isAutoUpdatingEngine = false;
+                });
               }
 
               task.status = DownloadStatus.error;

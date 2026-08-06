@@ -33,7 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         SnackBar(
           content: Text(
             success
-                ? 'yt-dlp motoru başarıyla en güncel sürüme yükseltildi.'
+                ? 'yt-dlp motoru başarıyla güncellendi.'
                 : 'yt-dlp motoru güncellenirken bir hata oluştu veya zaten güncel.',
           ),
           backgroundColor:
@@ -57,14 +57,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AYARLAR VE KISITLAMALAR'),
+        title: const Text('AYARLAR'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. Ağ ve İndirme Kısıtlamaları
+            // 1. Ağ ve İndirme Kuralları
             AmoledCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -80,7 +80,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(
-                          Icons.network_check_rounded,
+                          Icons.wifi_rounded,
                           color: isOnlyWifi
                               ? AmoledTheme.brandRed
                               : AmoledTheme.pureWhite,
@@ -89,7 +89,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(width: 10),
                       const Text(
-                        'Ağ ve Bağlantı Kuralı',
+                        'Ağ Kuralları',
                         style: TextStyle(
                           color: AmoledTheme.pureWhite,
                           fontSize: 15,
@@ -134,12 +134,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     subtitle: Text(
                       isOnlyWifi
-                          ? 'Aktif: Mobil verideyken indirmeler bekletilir, Wi-Fi bağlanınca başlar.'
-                          : 'Kapalı: Hem Mobil Veri hem Wi-Fi üzerinden indirmeye izin verilir.',
+                          ? 'Aktif: Mobil verideyken indirmeler bekletilir. Kapatıldığında 1 saat sonra otomatik olarak tekrar açılır.'
+                          : 'Kapalı: Mobil Veri aktif. 1 saat sonra otomatik olarak Wi-Fi moduna geri dönecektir.',
                       style: TextStyle(
                         color: isOnlyWifi
                             ? AmoledTheme.pureWhite.withValues(alpha: 0.9)
-                            : AmoledTheme.subText,
+                            : const Color(0xFFFFCC00),
                         fontSize: 12,
                       ),
                     ),
@@ -149,9 +149,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(value
-                              ? 'Ağ kısıtlaması: Yalnızca Wi-Fi aktif edildi.'
-                              : 'Ağ kısıtlaması: Mobil Veri ve Wi-Fi aktif edildi.'),
-                          duration: const Duration(seconds: 2),
+                              ? 'Sadece Wi-Fi ile indirme açıldı.'
+                              : 'Mobil veri açıldı. 1 saat sonra otomatik olarak Wi-Fi moduna dönecek.'),
+                          duration: const Duration(seconds: 3),
                         ),
                       );
                     },
@@ -191,7 +191,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     subtitle: Text(
-                      'Oynatma listelerinde en son eklenen / yayınlanan videolar ilk sıraya alınır.',
+                      'Oynatma listelerinde en son eklenen videolar ilk sıraya alınır.',
                       style: TextStyle(
                         color: settings.playlistReverseOrder
                             ? AmoledTheme.pureWhite.withValues(alpha: 0.9)
@@ -202,54 +202,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     value: settings.playlistReverseOrder,
                     onChanged: (bool value) {
                       settingsProvider.togglePlaylistReverse(value);
-                    },
-                  ),
-                  const Divider(color: AmoledTheme.borderDark),
-
-                  // Switch 3: Bağlantı Yapıştırıldığında Otomatik Başlat
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: settings.autoDownloadOnPaste
-                            ? AmoledTheme.brandRed.withValues(alpha: 0.2)
-                            : const Color(0xFF1E1E1E),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: settings.autoDownloadOnPaste
-                              ? AmoledTheme.brandRed.withValues(alpha: 0.4)
-                              : const Color(0xFF333333),
-                        ),
-                      ),
-                      child: Icon(
-                        Icons.bolt_rounded,
-                        color: settings.autoDownloadOnPaste
-                            ? AmoledTheme.brandRed
-                            : const Color(0xFF888888),
-                        size: 20,
-                      ),
-                    ),
-                    title: const Text(
-                      'Bağlantı Yapıştırıldığında Otomatik Başlat',
-                      style: TextStyle(
-                        color: AmoledTheme.pureWhite,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    subtitle: Text(
-                      'Manuel butonlara basmadan yapıştırıldığı an en yüksek kalitede indirir.',
-                      style: TextStyle(
-                        color: settings.autoDownloadOnPaste
-                            ? AmoledTheme.pureWhite.withValues(alpha: 0.9)
-                            : AmoledTheme.subText,
-                        fontSize: 12,
-                      ),
-                    ),
-                    value: settings.autoDownloadOnPaste,
-                    onChanged: (bool value) {
-                      settingsProvider.toggleAutoDownload(value);
                     },
                   ),
                 ],
@@ -321,7 +273,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   const Text(
-                    'Depolama bu limite ulaştığında yeni indirmeler otomatik olarak engellenir.',
+                    'Depolama bu limite ulaştığında yeni indirmeler otomatik olarak duraklatılır.',
                     style: TextStyle(color: Color(0xFF777777), fontSize: 11),
                   ),
                 ],
@@ -398,84 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // 4. Gizli Depolama & İzinler
-            AmoledCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: AmoledTheme.brandRed.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.folder_special_outlined,
-                          color: AmoledTheme.brandRed,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      const Text(
-                        'Gizli Depolama ve İzinler',
-                        style: TextStyle(
-                          color: AmoledTheme.pureWhite,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'İndirilen Dosya Yolu:',
-                    style: TextStyle(color: AmoledTheme.subText, fontSize: 12),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    settings.customDownloadPath,
-                    style: const TextStyle(
-                      color: AmoledTheme.pureWhite,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Klasör içindeki .nomedia dosyası sayesinde indirilen içerikler cihaz galerisinde ve medya oynatıcılarda görünmez.',
-                    style: TextStyle(color: Color(0xFF777777), fontSize: 11),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        settingsProvider.hasStoragePermission
-                            ? 'Tüm Dosyalara Erişim İzni: Verildi'
-                            : 'Tüm Dosyalara Erişim İzni: Gerekli',
-                        style: TextStyle(
-                          color: settingsProvider.hasStoragePermission
-                              ? const Color(0xFF00FF66)
-                              : const Color(0xFFFFCC00),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (!settingsProvider.hasStoragePermission)
-                        ElevatedButton(
-                          onPressed: () => settingsProvider.requestPermission(),
-                          child: const Text('İzin Ver'),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // 5. yt-dlp Güncelleme
+            // 4. yt-dlp Güncelleme (Yalnızca Ayarlar ekranında)
             AmoledCard(
               child: Row(
                 children: [
@@ -505,7 +380,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         Text(
-                          'YouTube backend değişikliklerine karşı motoru güncel tutar.',
+                          'YouTube değişikliklerine karşı indirme motorunu günceller.',
                           style: TextStyle(color: AmoledTheme.subText, fontSize: 11),
                         ),
                       ],
@@ -530,12 +405,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 24),
 
-            // 6. Sürüm Bilgisi Rozeti
+            // 5. Sürüm Bilgisi Rozeti
             Center(
               child: Column(
                 children: [
                   Text(
-                    'Offline YouTube v1.3.1 (Build 6)',
+                    'Offline YouTube v1.4.0 (Build 7)',
                     style: TextStyle(
                       color: AmoledTheme.pureWhite.withValues(alpha: 0.6),
                       fontSize: 12,
@@ -545,7 +420,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Toplam Süre Kotası • Geri Dönüşüm Kutusu • Otomasyon',
+                    'AMOLED UI • Türkçe Altyazı • 2X Dokun & Hızlandır',
                     style: TextStyle(
                       color: AmoledTheme.subText.withValues(alpha: 0.5),
                       fontSize: 11,

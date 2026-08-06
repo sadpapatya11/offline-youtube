@@ -13,17 +13,29 @@ class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
 
   @override
-  State<DownloadsScreen> createState() => _DownloadsScreenState();
+  State<DownloadsScreen> createState() => DownloadsScreenState();
 }
 
-class _DownloadsScreenState extends State<DownloadsScreen> {
+class DownloadsScreenState extends State<DownloadsScreen> {
+  final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void scrollToTop() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+      );
+    }
   }
 
   @override
@@ -161,6 +173,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                         backgroundColor: AmoledTheme.cardDark,
                         onRefresh: () => library.refresh(),
                         child: ListView.separated(
+                          controller: _scrollController,
                           padding: const EdgeInsets.all(16),
                           itemCount: filteredVideos.length,
                           separatorBuilder: (context, index) =>

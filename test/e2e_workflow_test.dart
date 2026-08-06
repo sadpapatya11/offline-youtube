@@ -177,9 +177,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 200));
 
       // 1. Home screen verification
-      expect(find.text('OFFLINE YOUTUBE'), findsWidgets);
-      expect(find.text('Otomatik İndirme & Senkronizasyon'), findsOneWidget);
-      expect(find.text('Depolama Kotası'), findsOneWidget);
+      expect(find.text('Ana Sayfa'), findsOneWidget);
+      expect(find.text('YouTube İndirici'), findsOneWidget);
 
       // 2. Navigate to Downloads tab
       await tester.tap(find.byIcon(Icons.video_library_outlined));
@@ -194,12 +193,11 @@ void main() {
       // 4. Navigate to Settings tab
       await tester.tap(find.byIcon(Icons.settings_outlined));
       await tester.pump(const Duration(milliseconds: 200));
-      expect(find.text('AYARLAR VE KISITLAMALAR'), findsOneWidget);
-      expect(find.text('Ağ ve Bağlantı Kuralı'), findsOneWidget);
+      expect(find.text('AYARLAR'), findsOneWidget);
+      expect(find.text('Ağ Kuralları'), findsOneWidget);
       expect(find.text('Sadece Wi-Fi ile İndir'), findsOneWidget);
       expect(find.text('Depolama Kotası Yöneticisi'), findsOneWidget);
       expect(find.text('Toplam Video Süresi Kotası'), findsOneWidget);
-      expect(find.text('Gizli Depolama ve İzinler'), findsOneWidget);
       expect(find.text('yt-dlp Motorunu Güncelle'), findsOneWidget);
 
       // 5. Test Switch interaction on Settings

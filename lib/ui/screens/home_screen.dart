@@ -122,95 +122,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('OFFLINE YOUTUBE'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.sync_rounded, color: AmoledTheme.pureWhite),
-            tooltip: 'yt-dlp Motorunu Güncelle',
-            onPressed: () async {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('yt-dlp motoru güncelleniyor...'),
-                  duration: Duration(seconds: 2),
-                ),
-              );
-              final success = await NativeBridge.instance.updateYtDlp();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(success
-                        ? 'yt-dlp motoru güncellendi.'
-                        : 'yt-dlp güncellemesi başarısız.'),
-                    duration: const Duration(seconds: 3),
-                  ),
-                );
-              }
-            },
+        title: const Text(
+          'Yeni İndirme',
+          style: TextStyle(
+            color: AmoledTheme.pureWhite,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.5,
           ),
-        ],
+        ),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Storage Quick Status Banner
-            AmoledCard(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                children: [
-                  const Icon(Icons.storage_rounded, color: AmoledTheme.pureWhite, size: 24),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Depolama Kotası',
-                          style: TextStyle(color: AmoledTheme.subText, fontSize: 11),
-                        ),
-                        Text(
-                          '$usedGB GB / $maxGB GB',
-                          style: const TextStyle(
-                            color: AmoledTheme.pureWhite,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: settings.networkMode == NetworkRestrictionMode.allNetworks
-                          ? const Color(0xFF113311)
-                          : const Color(0xFF222222),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: settings.networkMode == NetworkRestrictionMode.allNetworks
-                            ? const Color(0xFF00FF66)
-                            : AmoledTheme.accentGray,
-                      ),
-                    ),
-                    child: Text(
-                      settings.networkMode == NetworkRestrictionMode.allNetworks
-                          ? 'Mobil + Wi-Fi'
-                          : 'Sadece Wi-Fi',
-                      style: TextStyle(
-                        color: settings.networkMode == NetworkRestrictionMode.allNetworks
-                            ? const Color(0xFF00FF66)
-                            : AmoledTheme.subText,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
             // Otomatik İndirme Kartı
             AmoledCard(
               child: Column(
@@ -222,7 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
-                          'Otomatik İndirme & Senkronizasyon',
+                          'YouTube İndirici',
                           style: TextStyle(
                             color: AmoledTheme.pureWhite,
                             fontSize: 15,
@@ -249,7 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 8),
                   const Text(
-                    'Bağlantıyı yapıştırdığınız an otomatik olarak en son eklenen / en yeni videolar en önce ve en yüksek kalitede indirilmeye başlar.',
+                    'Bağlantıyı yapıştırdığınız an video veya oynatma listesi en yüksek kalitede otomatik olarak indirilmeye başlar.',
                     style: TextStyle(color: AmoledTheme.subText, fontSize: 12),
                   ),
                   const SizedBox(height: 14),
@@ -291,83 +216,6 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(height: 16),
-
-            // Canlı İndirme Durumu Kartı
-            if (activeDownloads.isNotEmpty) ...[
-              AmoledCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(AmoledTheme.pureWhite),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Devam Eden İndirme (${activeDownloads.length})',
-                              style: const TextStyle(
-                                color: AmoledTheme.pureWhite,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ],
-                        ),
-                        TextButton(
-                          onPressed: widget.onNavigateToQueue,
-                          child: const Text('Tümünü Gör', style: TextStyle(color: AmoledTheme.pureWhite, fontSize: 12)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    ...activeDownloads.take(2).map((task) => Padding(
-                          padding: const EdgeInsets.only(bottom: 8.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                task.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(color: AmoledTheme.pureWhite, fontSize: 13),
-                              ),
-                              const SizedBox(height: 4),
-                              LinearProgressIndicator(
-                                value: task.progress > 0 ? task.progress / 100.0 : null,
-                                backgroundColor: AmoledTheme.accentGray,
-                                valueColor: const AlwaysStoppedAnimation<Color>(AmoledTheme.pureWhite),
-                              ),
-                              const SizedBox(height: 4),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    task.speed.isNotEmpty ? task.speed : 'İndiriliyor...',
-                                    style: const TextStyle(color: AmoledTheme.subText, fontSize: 11),
-                                  ),
-                                  Text(
-                                    '%${task.progress.toStringAsFixed(1)} | Kalan: ${task.formattedEta}',
-                                    style: const TextStyle(color: AmoledTheme.subText, fontSize: 11),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        )),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
 
             // Kaydedilen Oynatma Listeleri ve Kanallar
             AmoledCard(

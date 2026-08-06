@@ -17,11 +17,24 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
+  final GlobalKey<DownloadsScreenState> _downloadsKey =
+      GlobalKey<DownloadsScreenState>();
+  final GlobalKey<QueueScreenState> _queueKey =
+      GlobalKey<QueueScreenState>();
 
   void _navigateToTab(int index) {
-    setState(() {
-      _currentIndex = index;
-    });
+    if (_currentIndex == index) {
+      // Zaten o sekmedeyken tekrar basıldığında en yukarı kaydır
+      if (index == 1) {
+        _downloadsKey.currentState?.scrollToTop();
+      } else if (index == 2) {
+        _queueKey.currentState?.scrollToTop();
+      }
+    } else {
+      setState(() {
+        _currentIndex = index;
+      });
+    }
   }
 
   @override
@@ -35,8 +48,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     final screens = [
       HomeScreen(onNavigateToQueue: () => _navigateToTab(2)),
-      const DownloadsScreen(),
-      const QueueScreen(),
+      DownloadsScreen(key: _downloadsKey),
+      QueueScreen(key: _queueKey),
       const SettingsScreen(),
     ];
 

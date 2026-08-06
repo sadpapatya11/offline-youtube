@@ -7,22 +7,94 @@ import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
 import '../widgets/download_tile.dart';
 
-class QueueScreen extends StatelessWidget {
+enum QueueFilter {
+  all,
+  downloading,
+  queued,
+  error,
+  completed,
+  cancelled,
+}
+
+class QueueScreen extends StatefulWidget {
   const QueueScreen({super.key});
+
+  @override
+  State<QueueScreen> createState() => QueueScreenState();
+}
+
+class QueueScreenState extends State<QueueScreen> {
+  final ScrollController _scrollController = ScrollController();
+  QueueFilter _selectedFilter = QueueFilter.all;
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void scrollToTop() {
+    if (_scrollController.hasClients) {
+      _scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final downloadProvider = context.watch<DownloadProvider>();
     final settingsProvider = context.watch<SettingsProvider>();
-    final tasks = downloadProvider.tasks;
-    final hasErrors = tasks.any((t) => t.status == DownloadStatus.error);
-    final hasCompleted = tasks.any((t) =>
+    final allTasks = downloadProvider.tasks;
+
+    final hasErrors = allTasks.any((t) => t.status == DownloadStatus.error);
+    final hasCompleted = allTasks.any((t) =>
         t.status == DownloadStatus.completed ||
         t.status == DownloadStatus.cancelled);
 
     final isWifiWaiting = downloadProvider.isWifiWaiting;
     final isQueuePaused = downloadProvider.isQueuePaused;
     final isDownloading = downloadProvider.isDownloadingActive;
+
+    // Filter counts
+    final runningCount = allTasks
+        .where((t) =>
+            t.status == DownloadStatus.downloading ||
+            t.status == DownloadStatus.fetchingMetadata)
+        .length;
+    final queuedCount = allTasks
+        .where((t) =>
+            t.status == DownloadStatus.queued ||
+            t.status == DownloadStatus.paused)
+        .length;
+    final errorCount =
+        allTasks.where((t) => t.status == DownloadStatus.error).length;
+    final completedCount =
+        allTasks.where((t) => t.status == DownloadStatus.completed).length;
+    final cancelledCount =
+        allTasks.where((t) => t.status == DownloadStatus.cancelled).length;
+
+    // Filtered list
+    final filteredTasks = allTasks.where((t) {
+      switch (_selectedFilter) {
+        case QueueFilter.all:
+          return true;
+        case QueueFilter.downloading:
+          return t.status == DownloadStatus.downloading ||
+              t.status == DownloadStatus.fetchingMetadata;
+        case QueueFilter.queued:
+          return t.status == DownloadStatus.queued ||
+              t.status == DownloadStatus.paused;
+        case QueueFilter.error:
+          return t.status == DownloadStatus.error;
+        case QueueFilter.completed:
+          return t.status == DownloadStatus.completed;
+        case QueueFilter.cancelled:
+          return t.status == DownloadStatus.cancelled;
+      }
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -42,7 +114,7 @@ class QueueScreen extends StatelessWidget {
               onPressed: () => downloadProvider.clearErrors(),
             ),
           ],
-          if (hasCompleted || tasks.isNotEmpty)
+          if (hasCompleted || allTasks.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.cleaning_services_rounded,
                   color: AmoledTheme.pureWhite),
@@ -51,7 +123,7 @@ class QueueScreen extends StatelessWidget {
             ),
         ],
       ),
-      body: tasks.isEmpty
+      body: allTasks.isEmpty
           ? Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -93,9 +165,9 @@ class QueueScreen extends StatelessWidget {
               children: [
                 // 1. MASTER KUYRUK KONTROL KARTI
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
                   child: AmoledCard(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(14),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -135,7 +207,7 @@ class QueueScreen extends StatelessWidget {
                                     Border.all(color: AmoledTheme.accentGray),
                               ),
                               child: Text(
-                                '${tasks.length} Görev',
+                                '${allTasks.length} Görev',
                                 style: const TextStyle(
                                   color: AmoledTheme.subText,
                                   fontSize: 11,
@@ -145,7 +217,7 @@ class QueueScreen extends StatelessWidget {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 10),
                         Row(
                           children: [
                             Expanded(
@@ -156,23 +228,25 @@ class QueueScreen extends StatelessWidget {
                                       : const Color(0xFFFFCC00),
                                   foregroundColor: Colors.black,
                                   padding:
-                                      const EdgeInsets.symmetric(vertical: 12),
+                                      const EdgeInsets.symmetric(vertical: 10),
                                   shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(8)),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
                                 ),
                                 icon: Icon(
                                   isQueuePaused
                                       ? Icons.play_arrow_rounded
                                       : Icons.pause_rounded,
-                                  size: 20,
+                                  size: 18,
                                 ),
                                 label: Text(
                                   isQueuePaused
-                                      ? 'Kuyruğu Başlat'
-                                      : 'Kuyruğu Duraklat',
+                                      ? 'Kuyruğu Devam Ettir'
+                                      : 'Tüm Kuyruğu Duraklat',
                                   style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 12.5,
+                                  ),
                                 ),
                                 onPressed: () {
                                   if (isQueuePaused) {
@@ -191,124 +265,196 @@ class QueueScreen extends StatelessWidget {
                   ),
                 ),
 
-                // 2. Wİ-Fİ BEKLENİYOR UYARI BANNERI
-                if (isWifiWaiting)
-                  Padding(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    child: Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2A1E00),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                            color: const Color(0xFFFFB300), width: 1),
+                // 2. KUYRUK KATEGORİ SEKMELERİ (FİLTRELER)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                  child: Row(
+                    children: [
+                      _buildFilterChip(
+                        filter: QueueFilter.all,
+                        label: 'Tümü',
+                        count: allTasks.length,
+                        activeColor: AmoledTheme.pureWhite,
                       ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.wifi_off_rounded,
-                              color: Color(0xFFFFB300), size: 22),
-                          const SizedBox(width: 10),
-                          const Expanded(
-                            child: Text(
-                              'Mobil Veri Koruması Aktif: Sadece Wi-Fi ile indirme kuralı seçili. Wi-Fi bağlantısı bekleniyor.',
-                              style: TextStyle(
-                                color: Color(0xFFFFE082),
-                                fontSize: 12,
-                                height: 1.3,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ],
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        filter: QueueFilter.downloading,
+                        label: 'Çalışıyor',
+                        count: runningCount,
+                        activeColor: const Color(0xFF00E676),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        filter: QueueFilter.queued,
+                        label: 'Kuyrukta',
+                        count: queuedCount,
+                        activeColor: const Color(0xFFFFCC00),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        filter: QueueFilter.error,
+                        label: 'Hata Oluştu',
+                        count: errorCount,
+                        activeColor: const Color(0xFFFF5252),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        filter: QueueFilter.completed,
+                        label: 'Tamamlandı',
+                        count: completedCount,
+                        activeColor: const Color(0xFF00E676),
+                      ),
+                      const SizedBox(width: 8),
+                      _buildFilterChip(
+                        filter: QueueFilter.cancelled,
+                        label: 'İptal Edildi',
+                        count: cancelledCount,
+                        activeColor: const Color(0xFF888888),
+                      ),
+                    ],
                   ),
+                ),
 
-                // 3. GÖREV LİSTESİ (KAYDIRARAK SİLME DESTEKLİ)
+                const Divider(color: AmoledTheme.borderDark, height: 1),
+
+                // 3. GÖREV LİSTESİ
                 Expanded(
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-                    itemCount: tasks.length,
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: 10),
-                    itemBuilder: (context, index) {
-                      final task = tasks[index];
-                      return Dismissible(
-                        key: Key('queue_task_${task.id}'),
-                        direction: DismissDirection.horizontal,
-                        background: Container(
-                          alignment: Alignment.centerLeft,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE50914),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.delete_outline_rounded,
-                                  color: Colors.white, size: 26),
-                              SizedBox(width: 8),
-                              Text(
-                                'Kuyruktan Kaldır',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        secondaryBackground: Container(
-                          alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE50914),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              Text(
-                                'Kuyruktan Kaldır',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              SizedBox(width: 8),
-                              Icon(Icons.delete_outline_rounded,
-                                  color: Colors.white, size: 26),
-                            ],
-                          ),
-                        ),
-                        onDismissed: (direction) {
-                          downloadProvider.removeTask(task.id);
-                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content:
-                                  Text('"${task.title}" kuyruktan kaldırıldı.'),
-                              duration: const Duration(seconds: 2),
+                  child: filteredTasks.isEmpty
+                      ? Center(
+                          child: Text(
+                            'Bu filtrede gösterilecek görev yok',
+                            style: TextStyle(
+                              color: AmoledTheme.subText.withValues(alpha: 0.7),
+                              fontSize: 13,
                             ),
-                          );
-                        },
-                        child: DownloadTile(
-                          task: task,
-                          onPause: () => downloadProvider.pauseTask(task.id),
-                          onResume: () => downloadProvider.resumeTask(
-                              task.id, settingsProvider.settings),
-                          onCancel: () => downloadProvider.cancelTask(task.id),
-                          onDelete: () => downloadProvider.removeTask(task.id),
+                          ),
+                        )
+                      : ListView.separated(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.all(16),
+                          itemCount: filteredTasks.length,
+                          separatorBuilder: (context, index) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final task = filteredTasks[index];
+                            return Dismissible(
+                              key: Key('queue_task_${task.id}'),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFF5252),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'Kuyruktan Çıkar',
+                                      style: TextStyle(
+                                        color: AmoledTheme.pureWhite,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Icon(
+                                      Icons.delete_outline_rounded,
+                                      color: AmoledTheme.pureWhite,
+                                      size: 24,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              onDismissed: (_) {
+                                downloadProvider.removeTask(task.id);
+                              },
+                              child: DownloadTile(
+                                task: task,
+                                onPause: () =>
+                                    downloadProvider.pauseTask(task.id),
+                                onResume: () => downloadProvider.resumeTask(
+                                  task.id,
+                                  settingsProvider.settings,
+                                ),
+                                onCancel: () =>
+                                    downloadProvider.cancelTask(task.id),
+                                onDelete: () =>
+                                    downloadProvider.removeTask(task.id),
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildFilterChip({
+    required QueueFilter filter,
+    required String label,
+    required int count,
+    required Color activeColor,
+  }) {
+    final isSelected = _selectedFilter == filter;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedFilter = filter;
+        });
+      },
+      borderRadius: BorderRadius.circular(20),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor.withValues(alpha: 0.15)
+              : AmoledTheme.cardDark,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected
+                ? activeColor
+                : AmoledTheme.borderDark,
+            width: isSelected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected ? activeColor : AmoledTheme.subText,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              ),
+            ),
+            if (count > 0) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                decoration: BoxDecoration(
+                  color: isSelected ? activeColor : const Color(0xFF333333),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: isSelected ? Colors.black : AmoledTheme.pureWhite,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -317,30 +463,43 @@ class QueueScreen extends StatelessWidget {
     required bool isPaused,
     required bool isDownloading,
   }) {
-    Color color;
-    IconData icon;
-
     if (isWifiWaiting) {
-      color = const Color(0xFFFFB300);
-      icon = Icons.wifi_lock_rounded;
-    } else if (isPaused) {
-      color = const Color(0xFFFFCC00);
-      icon = Icons.pause_circle_filled_rounded;
-    } else if (isDownloading) {
-      color = const Color(0xFF00E676);
-      icon = Icons.downloading_rounded;
-    } else {
-      color = AmoledTheme.subText;
-      icon = Icons.schedule_rounded;
+      return Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: Color(0xFFFF9900),
+          shape: BoxShape.circle,
+        ),
+      );
     }
-
+    if (isPaused) {
+      return Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: Color(0xFFFFCC00),
+          shape: BoxShape.circle,
+        ),
+      );
+    }
+    if (isDownloading) {
+      return Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: Color(0xFF00E676),
+          shape: BoxShape.circle,
+        ),
+      );
+    }
     return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+      width: 10,
+      height: 10,
+      decoration: const BoxDecoration(
+        color: AmoledTheme.accentGray,
         shape: BoxShape.circle,
       ),
-      child: Icon(icon, color: color, size: 18),
     );
   }
 
@@ -349,14 +508,9 @@ class QueueScreen extends StatelessWidget {
     required bool isPaused,
     required bool isDownloading,
   }) {
-    if (isWifiWaiting) {
-      return 'Wi-Fi BAĞLANTISI BEKLENİYOR';
-    } else if (isPaused) {
-      return 'KUYRUK DURAKLATILDI';
-    } else if (isDownloading) {
-      return 'İNDİRME DEVAM EDİYOR';
-    } else {
-      return 'KUYRUK HAZIR';
-    }
+    if (isWifiWaiting) return 'Wi-Fi Bağlantısı Bekleniyor';
+    if (isPaused) return 'Kuyruk Duraklatıldı';
+    if (isDownloading) return 'İndirme Aktif Çalışıyor';
+    return 'Kuyruk Hazır';
   }
 }

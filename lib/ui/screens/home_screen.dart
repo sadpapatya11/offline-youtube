@@ -89,10 +89,12 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       } else {
         _urlController.clear();
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('⚡ İndirme otomatik olarak başlatıldı!'),
             backgroundColor: const Color(0xFF003311),
+            duration: const Duration(seconds: 10),
             action: SnackBarAction(
               label: 'Kuyruğu Gör',
               textColor: AmoledTheme.pureWhite,
@@ -127,7 +129,10 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: 'yt-dlp Motorunu Güncelle',
             onPressed: () async {
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('yt-dlp motoru güncelleniyor...')),
+                const SnackBar(
+                  content: Text('yt-dlp motoru güncelleniyor...'),
+                  duration: Duration(seconds: 2),
+                ),
               );
               final success = await NativeBridge.instance.updateYtDlp();
               if (context.mounted) {
@@ -136,6 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     content: Text(success
                         ? 'yt-dlp motoru güncellendi.'
                         : 'yt-dlp güncellemesi başarısız.'),
+                    duration: const Duration(seconds: 3),
                   ),
                 );
               }

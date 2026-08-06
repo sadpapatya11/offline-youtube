@@ -93,4 +93,8 @@ class SettingsProvider extends ChangeNotifier {
     await SettingsManager.instance.saveSettings(_settings);
     notifyListeners();
   }
+
+  Future<bool> updateYtDlp() async {
+    return await NativeBridge.instance.updateYtDlp();
+  }
 }

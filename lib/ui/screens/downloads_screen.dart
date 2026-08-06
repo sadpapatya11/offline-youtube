@@ -48,7 +48,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
       ),
       body: Column(
         children: [
-          // Search & Summary Header
+          // Arama & Özet Başlığı
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Column(
@@ -106,7 +106,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           ),
           const Divider(color: AmoledTheme.borderDark, height: 1),
 
-          // Video List
+          // Video Listesi
           Expanded(
             child: library.isLoading
                 ? const Center(
@@ -128,7 +128,7 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                             const SizedBox(height: 16),
                             Text(
                               _searchQuery.isEmpty
-                                  ? 'Henüz indirilmiş video yok'
+                                   ? 'Henüz indirilmiş video yok'
                                   : 'Aramanızla eşleşen video bulunamadı',
                               style: const TextStyle(
                                 color: AmoledTheme.subText,
@@ -149,53 +149,62 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                               const SizedBox(height: 12),
                           itemBuilder: (context, index) {
                             final video = filteredVideos[index];
-                            return VideoTile(
-                              video: video,
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => PlayerScreen(video: video),
+                            return Dismissible(
+                              key: Key(video.id),
+                              direction: DismissDirection.endToStart,
+                              background: Container(
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20),
+                                decoration: BoxDecoration(
+                                  color: AmoledTheme.brandRed,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      'Sil',
+                                      style: TextStyle(
+                                        color: AmoledTheme.pureWhite,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    SizedBox(width: 8),
+                                    Icon(
+                                      Icons.delete_sweep_rounded,
+                                      color: AmoledTheme.pureWhite,
+                                      size: 26,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              onDismissed: (direction) {
+                                final title = video.title;
+                                context.read<LibraryProvider>().deleteVideo(video);
+                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text('🗑️ "$title" silindi.'),
+                                    duration: const Duration(seconds: 4),
                                   ),
                                 );
                               },
-                              onDelete: () => _confirmDelete(context, video),
+                              child: VideoTile(
+                                video: video,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => PlayerScreen(video: video),
+                                    ),
+                                  );
+                                },
+                              ),
                             );
                           },
                         ),
                       ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _confirmDelete(BuildContext context, VideoItem video) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Videoyu Sil',
-            style: TextStyle(color: AmoledTheme.pureWhite)),
-        content: Text(
-          '${video.title} cihazınızdan kalıcı olarak silinecek. Emin misiniz?',
-          style: const TextStyle(color: AmoledTheme.subText),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('İptal',
-                style: TextStyle(color: AmoledTheme.subText)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF5555),
-              foregroundColor: AmoledTheme.pureWhite,
-            ),
-            onPressed: () {
-              Navigator.pop(ctx);
-              context.read<LibraryProvider>().deleteVideo(video);
-            },
-            child: const Text('Sil'),
           ),
         ],
       ),

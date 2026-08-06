@@ -7,6 +7,8 @@ class AmoledTheme {
   static const Color borderDark = Color(0xFF222222);
   static const Color subText = Color(0xFFAAAAAA);
   static const Color accentGray = Color(0xFF1E1E1E);
+  static const Color brandRed = Color(0xFFFF0033);
+  static const Color redAccent = Color(0xFFFF2A42);
 
   static ThemeData get themeData {
     return ThemeData(
@@ -16,10 +18,10 @@ class AmoledTheme {
       canvasColor: pureBlack,
       cardColor: cardDark,
       colorScheme: const ColorScheme.dark(
-        primary: pureWhite,
-        onPrimary: pureBlack,
-        secondary: pureWhite,
-        onSecondary: pureBlack,
+        primary: brandRed,
+        onPrimary: pureWhite,
+        secondary: brandRed,
+        onSecondary: pureWhite,
         surface: cardDark,
         onSurface: pureWhite,
         surfaceContainerHighest: accentGray,
@@ -40,12 +42,45 @@ class AmoledTheme {
       ),
       bottomNavigationBarTheme: const BottomNavigationBarThemeData(
         backgroundColor: pureBlack,
-        selectedItemColor: pureWhite,
+        selectedItemColor: brandRed,
         unselectedItemColor: Color(0xFF666666),
         type: BottomNavigationBarType.fixed,
         elevation: 10,
         selectedLabelStyle: TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
         unselectedLabelStyle: TextStyle(fontWeight: FontWeight.w400, fontSize: 11),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return pureWhite;
+          }
+          return const Color(0xFFCCCCCC);
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return brandRed;
+          }
+          return const Color(0xFF1C1C1C);
+        }),
+        trackOutlineColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return brandRed;
+          }
+          return const Color(0xFF555555);
+        }),
+        trackOutlineWidth: WidgetStateProperty.all(1.5),
+        thumbIcon: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return const Icon(Icons.check, size: 14, color: brandRed);
+          }
+          return const Icon(Icons.close, size: 14, color: Color(0xFF666666));
+        }),
+      ),
+      sliderTheme: const SliderThemeData(
+        activeTrackColor: brandRed,
+        inactiveTrackColor: Color(0xFF2A2A2A),
+        thumbColor: pureWhite,
+        overlayColor: Color(0x33FF0033),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
@@ -62,13 +97,13 @@ class AmoledTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: pureWhite, width: 1.5),
+          borderSide: const BorderSide(color: brandRed, width: 1.5),
         ),
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
-          backgroundColor: pureWhite,
-          foregroundColor: pureBlack,
+          backgroundColor: brandRed,
+          foregroundColor: pureWhite,
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           shape: RoundedRectangleBorder(

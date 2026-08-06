@@ -8,13 +8,11 @@ import 'amoled_card.dart';
 class VideoTile extends StatelessWidget {
   final VideoItem video;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
 
   const VideoTile({
     super.key,
     required this.video,
     required this.onTap,
-    required this.onDelete,
   });
 
   @override
@@ -30,12 +28,12 @@ class VideoTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Thumbnail or Icon Container
+          // Küçük Resim (Thumbnail) veya Play Rozeti
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
             child: Container(
-              width: 68,
-              height: 48,
+              width: 72,
+              height: 50,
               decoration: BoxDecoration(
                 color: AmoledTheme.accentGray,
                 borderRadius: BorderRadius.circular(8),
@@ -64,12 +62,12 @@ class VideoTile extends StatelessWidget {
                         size: 28,
                       ),
                     ),
-                  // Subtle play icon badge overlay
+                  // Oynat ikonu rozeti
                   Center(
                     child: Container(
                       padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.45),
+                        color: Colors.black.withValues(alpha: 0.5),
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(
@@ -84,6 +82,7 @@ class VideoTile extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 12),
+          // Başlık ve Bilgiler
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -128,80 +127,14 @@ class VideoTile extends StatelessWidget {
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(
-              Icons.more_vert,
-              color: AmoledTheme.subText,
-              size: 20,
-            ),
-            onPressed: () => _showOptionsBottomSheet(context),
+          const SizedBox(width: 8),
+          // Sağ tarafta oynatma yönlendirici ok
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: Color(0xFF444444),
+            size: 20,
           ),
         ],
-      ),
-    );
-  }
-
-  void _showOptionsBottomSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AmoledTheme.cardDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        side: BorderSide(color: AmoledTheme.borderDark),
-      ),
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AmoledTheme.borderDark,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Text(
-                  video.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: AmoledTheme.pureWhite,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Divider(color: AmoledTheme.borderDark),
-              ListTile(
-                leading: const Icon(Icons.play_circle_fill_rounded,
-                    color: AmoledTheme.pureWhite),
-                title: const Text('Videoyu Oynat',
-                    style: TextStyle(color: AmoledTheme.pureWhite)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  onTap();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline_rounded,
-                    color: Color(0xFFFF5555)),
-                title: const Text('Videoyu Sil',
-                    style: TextStyle(color: Color(0xFFFF5555))),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  onDelete();
-                },
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

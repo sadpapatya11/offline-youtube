@@ -9,8 +9,8 @@ import '../services/network_manager.dart';
 import '../services/storage_manager.dart';
 
 class DownloadProvider extends ChangeNotifier {
-  static const String _tasksPrefKey = 'offline_youtube_persisted_tasks_v2';
-  static const String _queuePausedPrefKey = 'offline_youtube_queue_paused_v2';
+  static const String _tasksPrefKey = 'offline_youtube_persisted_tasks_v3';
+  static const String _queuePausedPrefKey = 'offline_youtube_queue_paused_v3';
 
   final List<DownloadTask> _tasks = [];
   bool _isProcessingQueue = false;
@@ -71,26 +71,32 @@ class DownloadProvider extends ChangeNotifier {
     _listenToConnectivity();
   }
 
-  // --- 1. PERSISTENCE (KALICILIK) & AÇILIŞTA OTOMATİK BAŞLATMA ---
+  // --- 1. PERSISTENCE (KALICI HAFIZA) & AÇILIŞTA OTOMATİK BAŞLATMA ---
 
   Future<void> _loadPersistedState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       _isQueuePaused = prefs.getBool(_queuePausedPrefKey) ?? false;
 
-      final rawList = prefs.getStringList(_tasksPrefKey);
+      // Hem v3 hem de önceki v2 anahtarını kontrol ederek geriye dönük veri kaybını önle
+      List<String>? rawList = prefs.getStringList(_tasksPrefKey);
+      rawList ??= prefs.getStringList('offline_youtube_persisted_tasks_v2');
+
       if (rawList != null && rawList.isNotEmpty) {
         _tasks.clear();
         for (final itemStr in rawList) {
           try {
             final Map<String, dynamic> jsonMap = jsonDecode(itemStr);
             final task = DownloadTask.fromJson(jsonMap);
-            // Uygulama kapandığında inmekte olan veya metadata çeken görevleri 'queued' (sırada) yap
-            // Böylece açılışta veya koşullar sağlandığında otomatik devam edebilsin
+
+            // Uygulama kapatılıp açıldığında bitmemiş olan tüm görevleri (downloading, paused, fetching)
+            // 'queued' durumuna alarak kuyruğun otomatik devam etmesini sağla
             if (task.status == DownloadStatus.downloading ||
-                task.status == DownloadStatus.fetchingMetadata) {
+                task.status == DownloadStatus.fetchingMetadata ||
+                task.status == DownloadStatus.paused) {
               task.status = DownloadStatus.queued;
               task.speed = '';
+              task.errorMessage = null;
             }
             _tasks.add(task);
           } catch (_) {}
@@ -101,15 +107,25 @@ class DownloadProvider extends ChangeNotifier {
       _isLoaded = true;
       notifyListeners();
 
-      // Uygulama açılışında master duraklatma yoksa ve kuyrukta bekleyen varsa otomatik başlat
+      // Hafızayı hemen güncel normalize edilmiş durumla kaydet
+      await _saveTasksToStorage();
+
+      // Açılışta bekleyen görevler varsa ve master pause yoksa hemen kuyruğu başlat
       if (!_isQueuePaused &&
           _tasks.any((t) => t.status == DownloadStatus.queued)) {
-        _triggerNextQueue();
+        if (_lastSettings != null) {
+          await _evaluateConditionsAndAutoResume();
+        } else {
+          _triggerNextQueue();
+        }
       }
     }
   }
 
   Future<void> _saveTasksToStorage() async {
+    // KRİTİK: Hafıza diskten henüz okunmadıysa asla boş listeyle diski ezme!
+    if (!_isLoaded) return;
+
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_queuePausedPrefKey, _isQueuePaused);
@@ -119,7 +135,7 @@ class DownloadProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  // --- 2. GERÇEK ZAMANLI AĞ VE WI-FI DİNLEME (MOBİL VERİ KORUMASI & AUTO-RESUME) ---
+  // --- 2. GERÇEK ZAMANLI AĞ VE WI-FI DİNLEME (AUTO-RESUME) ---
 
   void _listenToConnectivity() {
     _connectivitySubscription =
@@ -130,11 +146,12 @@ class DownloadProvider extends ChangeNotifier {
 
   Future<void> onSettingsChanged(AppSettings settings) async {
     _lastSettings = settings;
+    if (!_isLoaded) return;
     await _evaluateConditionsAndAutoResume();
   }
 
   Future<void> _evaluateConditionsAndAutoResume() async {
-    if (_lastSettings == null) return;
+    if (_lastSettings == null || !_isLoaded) return;
 
     // 1. Depolama kotası kontrolü
     final maxBytes = _lastSettings!.maxStorageLimitGB * 1024 * 1024 * 1024;
@@ -164,7 +181,6 @@ class DownloadProvider extends ChangeNotifier {
       } else {
         // Wi-Fi bağlandı -> Koşullar sağlandı, bekleyen görevleri otomatik başlat!
         if (!_isQueuePaused) {
-          // Mobil veri korumasından dolayı duraklatılmış görevleri kuyruğa al
           for (final t in _tasks) {
             if (t.status == DownloadStatus.paused &&
                 (t.errorMessage?.contains('Mobil veri') == true ||
@@ -305,7 +321,7 @@ class DownloadProvider extends ChangeNotifier {
   void _triggerNextQueue() {
     if (_isQueuePaused) return;
 
-    Future.delayed(const Duration(milliseconds: 1000), () {
+    Future.delayed(const Duration(milliseconds: 800), () {
       if (!_isQueuePaused) {
         processNextQueue();
       }

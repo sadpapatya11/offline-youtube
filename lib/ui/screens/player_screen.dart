@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import '../../models/video_item.dart';
+import '../../services/playback_manager.dart';
 import '../theme/amoled_theme.dart';
 
 class SubtitleCue {
@@ -36,6 +37,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double _baseSpeed = 1.0;
   bool _isHolding2X = false;
 
+  // Kaldığı Yerden Devam Etme (Playback Position)
+  int _lastSavedPosMs = 0;
+
   // Altyazı Yönetimi (Varsayılan olarak KAPALI)
   bool _showSubtitles = false;
   List<SubtitleCue> _subtitleCues = [];
@@ -58,9 +62,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return;
       }
 
+      // Kayıtlı kaldığı yeri yükle
+      final savedPos =
+          await PlaybackManager.instance.getPosition(widget.video.id);
+
       _controller = VideoPlayerController.file(file);
       await _controller.initialize();
       _controller.addListener(_onPlayerTick);
+
+      final totalDuration = _controller.value.duration.inMilliseconds;
+      if (savedPos > 2000 && savedPos < (totalDuration - 4000)) {
+        await _controller.seekTo(Duration(milliseconds: savedPos));
+        _lastSavedPosMs = savedPos;
+        if (mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: const Color(0xFF1E1E1E),
+              behavior: SnackBarBehavior.floating,
+              content: Text(
+                'Kaldığınız yerden devam ediliyor: ${_formatDuration(Duration(milliseconds: savedPos))}',
+                style: const TextStyle(
+                  color: AmoledTheme.pureWhite,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              action: SnackBarAction(
+                label: 'Başa Dön',
+                textColor: const Color(0xFF00E676),
+                onPressed: () {
+                  _controller.seekTo(Duration.zero);
+                  PlaybackManager.instance.savePosition(widget.video.id, 0);
+                },
+              ),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+
       _controller.play();
 
       if (mounted) {
@@ -79,6 +119,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _onPlayerTick() {
     if (!mounted || !_isInitialized) return;
+
+    final posMs = _controller.value.position.inMilliseconds;
+    final durMs = _controller.value.duration.inMilliseconds;
+
+    // Periyodik olarak (her 2 saniyede bir) pozisyonu kaydet
+    if ((posMs - _lastSavedPosMs).abs() > 2000) {
+      _lastSavedPosMs = posMs;
+      if (durMs > 0 && posMs >= durMs - 3000) {
+        PlaybackManager.instance.savePosition(widget.video.id, 0);
+      } else {
+        PlaybackManager.instance.savePosition(widget.video.id, posMs);
+      }
+    }
 
     // Altyazı güncellemesi
     if (_showSubtitles && _subtitleCues.isNotEmpty) {
@@ -217,6 +270,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     if (_isInitialized) {
+      final posMs = _controller.value.position.inMilliseconds;
+      final durMs = _controller.value.duration.inMilliseconds;
+      if (durMs > 0 && posMs >= durMs - 3000) {
+        PlaybackManager.instance.savePosition(widget.video.id, 0);
+      } else if (posMs > 1000) {
+        PlaybackManager.instance.savePosition(widget.video.id, posMs);
+      }
       _controller.removeListener(_onPlayerTick);
       _controller.dispose();
     }
@@ -241,41 +301,77 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Oynatma Hızı',
-                  style: TextStyle(
-                    color: AmoledTheme.pureWhite,
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ...speeds.map((s) {
-                  final isSelected = (_baseSpeed == s);
-                  return ListTile(
-                    title: Text(
-                      s == 1.0 ? '1.0x (Normal)' : '${s}x',
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Oynatma Hızı',
                       style: TextStyle(
-                        color: isSelected
-                            ? const Color(0xFF00E676)
-                            : AmoledTheme.pureWhite,
-                        fontWeight:
-                            isSelected ? FontWeight.bold : FontWeight.normal,
+                        color: AmoledTheme.pureWhite,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    trailing: isSelected
-                        ? const Icon(Icons.check, color: Color(0xFF00E676))
-                        : null,
-                    onTap: () {
-                      _setSpeed(s);
-                      Navigator.pop(ctx);
-                    },
-                  );
-                }),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded,
+                          color: AmoledTheme.subText, size: 20),
+                      onPressed: () => Navigator.pop(ctx),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: speeds.map((s) {
+                    final isSelected = (_baseSpeed == s);
+                    return Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          _setSpeed(s);
+                          Navigator.pop(ctx);
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 9),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xFF00E676)
+                                : AmoledTheme.accentGray,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(0xFF00E676)
+                                  : AmoledTheme.borderDark,
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            s == 1.0 ? '1.0x (Normal)' : '${s}x',
+                            style: TextStyle(
+                              color: isSelected
+                                  ? Colors.black
+                                  : AmoledTheme.pureWhite,
+                              fontWeight: isSelected
+                                  ? FontWeight.bold
+                                  : FontWeight.w600,
+                              fontSize: 12.5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 8),
               ],
             ),
           ),
@@ -322,10 +418,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (_subtitleCues.isNotEmpty)
             IconButton(
               icon: Icon(
-                _showSubtitles ? Icons.closed_caption_rounded : Icons.closed_caption_off_rounded,
-                color: _showSubtitles ? const Color(0xFF00E676) : AmoledTheme.subText,
+                _showSubtitles
+                    ? Icons.closed_caption_rounded
+                    : Icons.closed_caption_off_rounded,
+                color: _showSubtitles
+                    ? const Color(0xFF00E676)
+                    : AmoledTheme.subText,
               ),
-              tooltip: _showSubtitles ? 'Altyazıyı Kapat' : 'Türkçe Altyazıyı Aç',
+              tooltip:
+                  _showSubtitles ? 'Altyazıyı Kapat' : 'Türkçe Altyazıyı Aç',
               onPressed: () {
                 setState(() {
                   _showSubtitles = !_showSubtitles;
@@ -333,7 +434,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ScaffoldMessenger.of(context).hideCurrentSnackBar();
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(_showSubtitles ? 'Türkçe altyazı açıldı.' : 'Altyazı kapatıldı.'),
+                    content: Text(_showSubtitles
+                        ? 'Türkçe altyazı açıldı.'
+                        : 'Altyazı kapatıldı.'),
                     duration: const Duration(seconds: 1),
                   ),
                 );
@@ -416,31 +519,42 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         // 2X HIZLI OYNATILIYOR ROZETİ (Basılı Tutulduğunda)
                         if (_isHolding2X)
                           Positioned(
-                            top: 80,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.85),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                    color: const Color(0xFFFFCC00), width: 1.5),
-                              ),
-                              child: const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.fast_forward_rounded,
-                                      color: Color(0xFFFFCC00), size: 18),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    '2X Hızında Oynatılıyor',
-                                    style: TextStyle(
-                                      color: AmoledTheme.pureWhite,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13,
+                            top: 64,
+                            child: IgnorePointer(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.9),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                      color: const Color(0xFFFFCC00),
+                                      width: 1.5),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFFFCC00)
+                                          .withValues(alpha: 0.4),
+                                      blurRadius: 12,
+                                      spreadRadius: 2,
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.fast_forward_rounded,
+                                        color: Color(0xFFFFCC00), size: 18),
+                                    SizedBox(width: 6),
+                                    Text(
+                                      '2X Hızında Oynatılıyor',
+                                      style: TextStyle(
+                                        color: AmoledTheme.pureWhite,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),

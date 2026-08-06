@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import '../models/trashed_video_item.dart';
 import '../models/video_item.dart';
 import 'native_bridge.dart';
+import 'playback_manager.dart';
 
 class StorageManager {
   static final StorageManager instance = StorageManager._internal();
@@ -348,6 +349,7 @@ class StorageManager {
               final tf = File(item.video.thumbnailPath!);
               if (await tf.exists()) await tf.delete();
             }
+            PlaybackManager.instance.clearPosition(item.video.id);
           } catch (_) {}
         } else {
           // Dosya gerçekten mevcutsa aktif çöp listesinde tut
@@ -375,6 +377,7 @@ class StorageManager {
         final tf = File(trashed.video.thumbnailPath!);
         if (await tf.exists()) await tf.delete();
       }
+      PlaybackManager.instance.clearPosition(trashed.video.id);
 
       final currentTrash = await loadTrashIndex();
       currentTrash.removeWhere((t) => t.video.id == trashed.video.id);
@@ -399,6 +402,7 @@ class StorageManager {
             final tf = File(item.video.thumbnailPath!);
             if (await tf.exists()) await tf.delete();
           }
+          PlaybackManager.instance.clearPosition(item.video.id);
         } catch (_) {}
       }
       await _saveTrashIndex([]);

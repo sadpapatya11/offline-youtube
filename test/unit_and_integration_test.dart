@@ -6,9 +6,14 @@ import 'package:offlineyoutube/models/download_task.dart';
 import 'package:offlineyoutube/models/trashed_video_item.dart';
 import 'package:offlineyoutube/models/video_item.dart';
 import 'package:offlineyoutube/providers/download_provider.dart';
+import 'package:offlineyoutube/services/playback_manager.dart';
 import 'package:offlineyoutube/ui/theme/amoled_theme.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  SharedPreferences.setMockInitialValues({});
+
   group('Models & Logic Tests', () {
     test('AppSettings serialization and defaults', () {
       const settings = AppSettings();
@@ -106,6 +111,17 @@ void main() {
       const err2 = 'Sign in to confirm you’re not a bot';
       expect(DownloadProvider.cleanErrorMessage(err2),
           contains('YouTube bot doğrulaması istedi'));
+    });
+
+    test('PlaybackManager position saving and clearing', () async {
+      final pm = PlaybackManager.instance;
+      await pm.savePosition('test_vid_123', 45000);
+      final pos = await pm.getPosition('test_vid_123');
+      expect(pos, 45000);
+
+      await pm.clearPosition('test_vid_123');
+      final clearedPos = await pm.getPosition('test_vid_123');
+      expect(clearedPos, 0);
     });
   });
 

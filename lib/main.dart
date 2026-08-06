@@ -45,7 +45,7 @@ class OfflineYoutubeApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: 'offlineyoutube',
+        title: 'oflineyoutube',
         debugShowCheckedModeBanner: false,
         theme: AmoledTheme.themeData,
         home: const MainNavigationScreen(),

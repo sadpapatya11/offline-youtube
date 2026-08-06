@@ -21,6 +21,9 @@ class DownloadTask {
   String speed;
   int etaSeconds;
   String? errorMessage;
+  bool hadPreviousError;
+  String? totalSize;
+  String? downloadedSize;
   final DateTime createdAt;
 
   DownloadTask({
@@ -36,6 +39,9 @@ class DownloadTask {
     this.speed = '',
     this.etaSeconds = 0,
     this.errorMessage,
+    this.hadPreviousError = false,
+    this.totalSize,
+    this.downloadedSize,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -57,12 +63,51 @@ class DownloadTask {
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  String get formattedSizeInfo {
+    // 1. İndirme esnasında hem indirilen hem toplam boyut varsa (örn: "45.2 MB / 120.5 MB")
+    if (status == DownloadStatus.downloading &&
+        downloadedSize != null &&
+        downloadedSize!.isNotEmpty &&
+        totalSize != null &&
+        totalSize!.isNotEmpty) {
+      return '$downloadedSize / $totalSize';
+    }
+
+    // 2. Sadece toplam boyut varsa (örn: "120.5 MB")
+    if (totalSize != null && totalSize!.isNotEmpty) {
+      return totalSize!;
+    }
+
+    // 3. Metadata'dan gelen tahmini/gerçek bayt boyutu varsa
+    if (estimatedSizeBytes != null && estimatedSizeBytes! > 0) {
+      final bytes = estimatedSizeBytes!;
+      if (bytes >= 1024 * 1024 * 1024) {
+        return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+      }
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+
+    // 4. Süreye göre yaklaşık dosya boyutu tahmini (~1.8 MB/dakika)
+    if (durationSeconds != null && durationSeconds! > 0) {
+      final estimatedMB = (durationSeconds! / 60) * 1.8;
+      if (estimatedMB >= 1024) {
+        return '~${(estimatedMB / 1024).toStringAsFixed(2)} GB';
+      }
+      return '~${estimatedMB.toStringAsFixed(1)} MB';
+    }
+
+    return '';
+  }
+
   DownloadTask copyWith({
     DownloadStatus? status,
     double? progress,
     String? speed,
     int? etaSeconds,
     String? errorMessage,
+    bool? hadPreviousError,
+    String? totalSize,
+    String? downloadedSize,
     String? title,
     String? thumbnail,
     int? durationSeconds,
@@ -82,6 +127,9 @@ class DownloadTask {
       speed: speed ?? this.speed,
       etaSeconds: etaSeconds ?? this.etaSeconds,
       errorMessage: errorMessage ?? this.errorMessage,
+      hadPreviousError: hadPreviousError ?? this.hadPreviousError,
+      totalSize: totalSize ?? this.totalSize,
+      downloadedSize: downloadedSize ?? this.downloadedSize,
       createdAt: createdAt,
     );
   }
@@ -100,6 +148,9 @@ class DownloadTask {
       'speed': speed,
       'etaSeconds': etaSeconds,
       'errorMessage': errorMessage,
+      'hadPreviousError': hadPreviousError,
+      'totalSize': totalSize,
+      'downloadedSize': downloadedSize,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -128,6 +179,11 @@ class DownloadTask {
       speed: json['speed'] as String? ?? '',
       etaSeconds: (json['etaSeconds'] as num?)?.toInt() ?? 0,
       errorMessage: json['errorMessage'] as String?,
+      hadPreviousError: json['hadPreviousError'] as bool? ??
+          (parsedStatus == DownloadStatus.error ||
+              json['errorMessage'] != null),
+      totalSize: json['totalSize'] as String?,
+      downloadedSize: json['downloadedSize'] as String?,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
           : DateTime.now(),

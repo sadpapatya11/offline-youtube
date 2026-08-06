@@ -70,7 +70,7 @@ void main() {
       expect(expiredTrash.formattedRemainingTime, 'Kalıcı olarak silinecek');
     });
 
-    test('DownloadTask progress and ETA formatting', () {
+    test('DownloadTask progress, ETA and size formatting', () {
       final task = DownloadTask(
         id: '1001',
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
@@ -79,10 +79,21 @@ void main() {
         progress: 45.5,
         speed: '12.4 MB/s',
         etaSeconds: 125, // 2m 5s
+        totalSize: '85.4 MB',
+        downloadedSize: '38.8 MB',
+        hadPreviousError: true,
       );
 
       expect(task.formattedEta, '02:05');
       expect(task.status, DownloadStatus.downloading);
+      expect(task.formattedSizeInfo, '38.8 MB / 85.4 MB');
+      expect(task.hadPreviousError, isTrue);
+
+      final json = task.toJson();
+      final fromJson = DownloadTask.fromJson(json);
+      expect(fromJson.totalSize, '85.4 MB');
+      expect(fromJson.downloadedSize, '38.8 MB');
+      expect(fromJson.hadPreviousError, isTrue);
     });
 
     test('Network error detection and Turkish translation', () {

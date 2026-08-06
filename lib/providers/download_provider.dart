@@ -112,11 +112,14 @@ class DownloadProvider extends ChangeNotifier {
       // Hafızayı hemen güncel normalize edilmiş durumla kaydet
       await _saveTasksToStorage();
 
-      // Açılışta bekleyen görevler varsa ve master pause yoksa hemen kuyruğu başlat
+      // Açılışta bekleyen veya hatalı görevler varsa ve master pause yoksa hemen kuyruğu başlat
       if (!_isQueuePaused &&
-          _tasks.any((t) => t.status == DownloadStatus.queued)) {
+          _tasks.any((t) =>
+              t.status == DownloadStatus.queued ||
+              t.status == DownloadStatus.error)) {
         if (_lastSettings != null) {
           await _evaluateConditionsAndAutoResume();
+          processNextQueue(settings: _lastSettings);
         } else {
           _triggerNextQueue();
         }
@@ -150,6 +153,12 @@ class DownloadProvider extends ChangeNotifier {
     _lastSettings = settings;
     if (!_isLoaded) return;
     await _evaluateConditionsAndAutoResume();
+    if (!_isQueuePaused &&
+        _tasks.any((t) =>
+            t.status == DownloadStatus.queued ||
+            t.status == DownloadStatus.error)) {
+      processNextQueue(settings: settings);
+    }
   }
 
   Future<void> _evaluateConditionsAndAutoResume() async {
@@ -281,11 +290,15 @@ class DownloadProvider extends ChangeNotifier {
             final progress = (data['progress'] as num?)?.toDouble() ?? 0.0;
             final eta = (data['eta'] as num?)?.toInt() ?? 0;
             final speed = data['speed']?.toString() ?? '';
+            final totalSize = data['totalSize']?.toString() ?? '';
+            final downloadedSize = data['downloadedSize']?.toString() ?? '';
 
             if (task.status == DownloadStatus.downloading) {
               task.progress = progress;
               task.etaSeconds = eta;
               task.speed = speed;
+              if (totalSize.isNotEmpty) task.totalSize = totalSize;
+              if (downloadedSize.isNotEmpty) task.downloadedSize = downloadedSize;
               notifyListeners();
             }
             break;
@@ -340,6 +353,7 @@ class DownloadProvider extends ChangeNotifier {
               if (isNetError) {
                 // Ağ / DNS hatası: Görevi kırmızı kalıcı hataya atmak yerine duraklat ve bekle
                 task.status = DownloadStatus.paused;
+                task.hadPreviousError = true;
                 task.speed = '';
                 task.errorMessage =
                     '⚠️ Ağ bağlantısı kesildi. İnternet sağlandığında otomatik devam edecek.';
@@ -362,6 +376,7 @@ class DownloadProvider extends ChangeNotifier {
                   _isAutoUpdatingEngine = false;
                   if (updated) {
                     task.status = DownloadStatus.queued;
+                    task.hadPreviousError = true;
                     task.errorMessage = null;
                     _saveTasksToStorage();
                     notifyListeners();
@@ -373,6 +388,7 @@ class DownloadProvider extends ChangeNotifier {
               }
 
               task.status = DownloadStatus.error;
+              task.hadPreviousError = true;
               task.speed = '';
               task.errorMessage = cleanErrorMessage(rawError);
               if (_activeTaskId == taskId) {
@@ -396,7 +412,7 @@ class DownloadProvider extends ChangeNotifier {
             break;
         }
       },
-      onError: (e) {
+      onError: (error) {
         // Event channel hatası
       },
     );
@@ -442,7 +458,8 @@ class DownloadProvider extends ChangeNotifier {
     _isQueuePaused = false;
 
     for (final t in _tasks) {
-      if (t.status == DownloadStatus.paused) {
+      if (t.status == DownloadStatus.paused ||
+          t.status == DownloadStatus.error) {
         t.status = DownloadStatus.queued;
         t.errorMessage = null;
       }
@@ -502,8 +519,27 @@ class DownloadProvider extends ChangeNotifier {
 
     _isProcessingQueue = true;
     try {
-      final nextTaskIndex =
-          _tasks.indexWhere((t) => t.status == DownloadStatus.queued);
+      // Hata almış olan görevleri öncelikle tekrar denemek üzere sıraya al
+      for (final t in _tasks) {
+        if (t.status == DownloadStatus.error) {
+          t.status = DownloadStatus.queued;
+          t.hadPreviousError = true;
+          t.errorMessage = null;
+        }
+      }
+
+      // 1. Önce daha önce hata almış olan bir 'queued' görev ara
+      int nextTaskIndex = _tasks.indexWhere(
+        (t) => t.status == DownloadStatus.queued && t.hadPreviousError,
+      );
+
+      // 2. Eğer hata almış görev yoksa normal 'queued' görev ara
+      if (nextTaskIndex == -1) {
+        nextTaskIndex = _tasks.indexWhere(
+          (t) => t.status == DownloadStatus.queued,
+        );
+      }
+
       if (nextTaskIndex == -1) {
         _isProcessingQueue = false;
         return;
@@ -525,6 +561,7 @@ class DownloadProvider extends ChangeNotifier {
 
       if (!started) {
         nextTask.status = DownloadStatus.error;
+        nextTask.hadPreviousError = true;
         nextTask.errorMessage = 'İndirme başlatılamadı.';
         _activeTaskId = null;
         _saveTasksToStorage();

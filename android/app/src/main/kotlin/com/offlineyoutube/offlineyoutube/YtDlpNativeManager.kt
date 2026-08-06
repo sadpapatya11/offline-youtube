@@ -190,7 +190,7 @@ object YtDlpNativeManager {
         taskId: String,
         url: String,
         outputDir: File,
-        onProgress: (Float, Long, String) -> Unit,
+        onProgress: (Float, Long, String, String, String) -> Unit,
         onComplete: (String) -> Unit,
         onError: (Exception) -> Unit
     ) {
@@ -238,7 +238,9 @@ object YtDlpNativeManager {
                 taskId
             ) { progress, etaInSeconds, line ->
                 val speed = parseSpeed(line)
-                onProgress(progress, etaInSeconds, speed)
+                val totalSize = parseTotalSize(line)
+                val downloadedSize = parseDownloadedSize(line)
+                onProgress(progress, etaInSeconds, speed, totalSize, downloadedSize)
             }
 
             activeTasks.remove(taskId)
@@ -268,6 +270,20 @@ object YtDlpNativeManager {
     private fun parseSpeed(line: String?): String {
         if (line == null) return ""
         val regex = "at\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB]/s)".toRegex()
+        val match = regex.find(line)
+        return match?.groupValues?.get(1) ?: ""
+    }
+
+    private fun parseTotalSize(line: String?): String {
+        if (line == null) return ""
+        val regex = "of\\s+~?\\s*([0-9.]+\\s*[kKMmGg]?[iI]?[bB])".toRegex()
+        val match = regex.find(line)
+        return match?.groupValues?.get(1) ?: ""
+    }
+
+    private fun parseDownloadedSize(line: String?): String {
+        if (line == null) return ""
+        val regex = "\\[download\\]\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB])\\s+of".toRegex()
         val match = regex.find(line)
         return match?.groupValues?.get(1) ?: ""
     }

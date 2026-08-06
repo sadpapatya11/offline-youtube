@@ -113,10 +113,11 @@ class DownloadForegroundService : Service() {
                 taskId = taskId,
                 url = url,
                 outputDir = outputDir,
-                onProgress = { progress, eta, speed ->
+                onProgress = { progress, eta, speed, totalSize, downloadedSize ->
+                    val sizeInfo = if (totalSize.isNotEmpty()) " [$totalSize]" else ""
                     val notification = buildNotification(
                         title = title,
-                        content = "$speed - Kalan: ${formatEta(eta)}",
+                        content = "$speed$sizeInfo - Kalan: ${formatEta(eta)}",
                         progress = progress.toInt(),
                         indeterminate = false
                     )
@@ -127,7 +128,9 @@ class DownloadForegroundService : Service() {
                         "type" to "progress",
                         "progress" to progress,
                         "eta" to eta,
-                        "speed" to speed
+                        "speed" to speed,
+                        "totalSize" to totalSize,
+                        "downloadedSize" to downloadedSize
                     ))
                 },
                 onComplete = { result ->

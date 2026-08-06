@@ -125,6 +125,44 @@ class DownloadTile extends StatelessWidget {
                             ),
                           ),
                         ],
+                        if (task.formattedSizeInfo.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          const Text(
+                            '•',
+                            style: TextStyle(
+                              color: AmoledTheme.subText,
+                              fontSize: 11,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 5, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: AmoledTheme.accentGray,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.sd_storage_outlined,
+                                  size: 11,
+                                  color: AmoledTheme.brandRed,
+                                ),
+                                const SizedBox(width: 3),
+                                Text(
+                                  task.formattedSizeInfo,
+                                  style: const TextStyle(
+                                    color: AmoledTheme.pureWhite,
+                                    fontSize: 10.5,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],
@@ -151,15 +189,31 @@ class DownloadTile extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '${task.progress.toStringAsFixed(1)}%',
-                  style: TextStyle(
-                    color: isPaused
-                        ? const Color(0xFFFFCC00)
-                        : AmoledTheme.pureWhite,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '${task.progress.toStringAsFixed(1)}%',
+                      style: TextStyle(
+                        color: isPaused
+                            ? const Color(0xFFFFCC00)
+                            : AmoledTheme.pureWhite,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    if (task.formattedSizeInfo.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        '(${task.formattedSizeInfo})',
+                        style: const TextStyle(
+                          color: Color(0xFF81D4FA),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 if (task.speed.isNotEmpty)
                   Text(

@@ -184,7 +184,9 @@ class DownloadProvider extends ChangeNotifier {
           for (final t in _tasks) {
             if (t.status == DownloadStatus.paused &&
                 (t.errorMessage?.contains('Mobil veri') == true ||
-                    t.errorMessage?.contains('Wi-Fi') == true)) {
+                    t.errorMessage?.contains('Wi-Fi') == true ||
+                    t.errorMessage?.contains('Ağ bağlantısı') == true ||
+                    t.errorMessage?.contains('İnternet') == true)) {
               t.status = DownloadStatus.queued;
               t.errorMessage = null;
             }
@@ -202,7 +204,9 @@ class DownloadProvider extends ChangeNotifier {
         for (final t in _tasks) {
           if (t.status == DownloadStatus.paused &&
               (t.errorMessage?.contains('Mobil veri') == true ||
-                  t.errorMessage?.contains('Wi-Fi') == true)) {
+                  t.errorMessage?.contains('Wi-Fi') == true ||
+                  t.errorMessage?.contains('Ağ bağlantısı') == true ||
+                  t.errorMessage?.contains('İnternet') == true)) {
             t.status = DownloadStatus.queued;
             t.errorMessage = null;
           }
@@ -286,11 +290,32 @@ class DownloadProvider extends ChangeNotifier {
           case 'error':
             if (task.status != DownloadStatus.paused &&
                 task.status != DownloadStatus.cancelled) {
+              final rawError = data['error']?.toString() ??
+                  data['message']?.toString() ??
+                  '';
+              final isNetError = isNetworkRelatedError(rawError);
+
+              if (isNetError) {
+                // Ağ / DNS hatası: Görevi kırmızı kalıcı hataya atmak yerine duraklat ve bekle
+                task.status = DownloadStatus.paused;
+                task.speed = '';
+                task.errorMessage =
+                    '⚠️ Ağ bağlantısı kesildi. İnternet/Wi-Fi sağlandığında indirme otomatik devam edecek.';
+                if (_activeTaskId == taskId) {
+                  _activeTaskId = null;
+                }
+                if (_lastSettings?.networkMode == NetworkRestrictionMode.anyWifi) {
+                  _isWifiWaiting = true;
+                }
+                _saveTasksToStorage();
+                notifyListeners();
+                // Ağ yokken diğer görevleri peş peşe patlatmamak için beklet
+                return;
+              }
+
               task.status = DownloadStatus.error;
               task.speed = '';
-              task.errorMessage = cleanErrorMessage(data['error']?.toString() ??
-                  data['message']?.toString() ??
-                  'İndirme hatası oluştu');
+              task.errorMessage = cleanErrorMessage(rawError);
               if (_activeTaskId == taskId) {
                 _activeTaskId = null;
               }
@@ -475,6 +500,24 @@ class DownloadProvider extends ChangeNotifier {
     return lower.contains('list=') || lower.contains('/playlist');
   }
 
+  static bool isNetworkRelatedError(String error) {
+    final lower = error.toLowerCase();
+    return lower.contains('no address associated with hostname') ||
+        lower.contains('network is unreachable') ||
+        lower.contains('temporary failure in name resolution') ||
+        lower.contains('transportererror') ||
+        lower.contains('connection refused') ||
+        lower.contains('connection reset') ||
+        lower.contains('timed out') ||
+        lower.contains('timeout') ||
+        lower.contains('socketexception') ||
+        lower.contains('failed to connect') ||
+        lower.contains('unable to download api page') ||
+        lower.contains('incompleteread') ||
+        lower.contains('remotedisconnected') ||
+        lower.contains('errno 7');
+  }
+
   static String cleanErrorMessage(dynamic error) {
     if (error == null) return 'Bilinmeyen bir hata oluştu.';
     String result = error.toString().trim();
@@ -491,6 +534,32 @@ class DownloadProvider extends ChangeNotifier {
           result = rest;
         }
       }
+    }
+
+    // Ağ ve Bağlantı Hataları
+    if (isNetworkRelatedError(result)) {
+      return 'İnternet / DNS bağlantısı kurulamadı. Ağ bağlantısı bekleniyor.';
+    }
+
+    // Bot / Doğrulama
+    if (result.toLowerCase().contains('sign in to confirm') ||
+        result.toLowerCase().contains('bot')) {
+      return 'YouTube bot doğrulaması istedi. Ayarlardan yt-dlp motorunu güncelleyin.';
+    }
+
+    // Yayından kaldırılmış / Gizli
+    if (result.toLowerCase().contains('video unavailable') ||
+        result.toLowerCase().contains('this video is unavailable')) {
+      return 'Video yayından kaldırılmış veya gizli.';
+    }
+    if (result.toLowerCase().contains('private video')) {
+      return 'Bu video gizli olarak ayarlanmış.';
+    }
+
+    // İstek Limiti
+    if (result.toLowerCase().contains('429') ||
+        result.toLowerCase().contains('too many requests')) {
+      return 'YouTube istek sınırı aşıldı. Lütfen biraz bekleyin.';
     }
 
     // Remove yt-dlp update warnings
@@ -510,6 +579,19 @@ class DownloadProvider extends ChangeNotifier {
     result = result.replaceAll(RegExp(r',\s*null,\s*null\)?$'), '').trim();
 
     return result.isEmpty ? 'İndirme işlemi sırasında bir hata oluştu.' : result;
+  }
+
+  /// Hatalı görevleri tekrar kuyruğa alıp indirmeyi başlatır
+  Future<void> retryAllErrors({AppSettings? settings}) async {
+    for (final task in _tasks) {
+      if (task.status == DownloadStatus.error) {
+        task.status = DownloadStatus.queued;
+        task.errorMessage = null;
+      }
+    }
+    await _saveTasksToStorage();
+    notifyListeners();
+    await processNextQueue(settings: settings ?? _lastSettings);
   }
 
   // --- 6. VİDEO VE OYNATMA LİSTESİ EKLEME ---

@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
+import '../models/trashed_video_item.dart';
 import '../models/video_item.dart';
 import 'native_bridge.dart';
 
@@ -12,6 +14,7 @@ class StorageManager {
 
   String _currentDownloadPath = defaultHiddenPath;
   String get currentDownloadPath => _currentDownloadPath;
+  String get trashPath => '$_currentDownloadPath/.trash';
 
   Future<void> initDirectory([String? customPath]) async {
     if (customPath != null && customPath.isNotEmpty) {
@@ -49,15 +52,25 @@ class StorageManager {
         }
       }
 
-      // Ensure .nomedia file exists to hide from gallery
+      // Ensure .nomedia file exists in main download dir
       try {
         final noMedia = File('${dir.path}/.nomedia');
         if (!await noMedia.exists()) {
           await noMedia.create();
         }
-      } catch (_) {
-        // Non-fatal if nomedia cannot be written
-      }
+      } catch (_) {}
+
+      // Ensure .trash directory and .nomedia exist
+      try {
+        final trashDir = Directory(trashPath);
+        if (!await trashDir.exists()) {
+          await trashDir.create(recursive: true);
+        }
+        final trashNoMedia = File('${trashDir.path}/.nomedia');
+        if (!await trashNoMedia.exists()) {
+          await trashNoMedia.create();
+        }
+      } catch (_) {}
     } catch (e) {
       // Handled gracefully
     }
@@ -129,21 +142,193 @@ class StorageManager {
     return videos;
   }
 
-  Future<bool> deleteVideo(VideoItem item) async {
+  // --- GERİ DÖNÜŞÜM KUTUSU (TRASH) YÖNETİMİ ---
+
+  File get _trashIndexFile => File('$trashPath/trash_index.json');
+
+  Future<List<TrashedVideoItem>> loadTrashIndex() async {
     try {
-      final file = File(item.filePath);
-      if (await file.exists()) {
-        await file.delete();
+      final file = _trashIndexFile;
+      if (!await file.exists()) return [];
+      final content = await file.readAsString();
+      if (content.trim().isEmpty) return [];
+      final list = jsonDecode(content) as List<dynamic>;
+      return list
+          .map((item) => TrashedVideoItem.fromJson(item as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  Future<void> _saveTrashIndex(List<TrashedVideoItem> items) async {
+    try {
+      final file = _trashIndexFile;
+      final jsonList = items.map((i) => i.toJson()).toList();
+      await file.writeAsString(jsonEncode(jsonList));
+    } catch (e) {
+      // Non-fatal
+    }
+  }
+
+  /// Videoyu Geri Dönüşüm Kutusu (.trash) klasörüne taşır
+  Future<bool> moveToTrash(VideoItem item) async {
+    try {
+      final trashDir = Directory(trashPath);
+      if (!await trashDir.exists()) {
+        await trashDir.create(recursive: true);
       }
+
+      final srcFile = File(item.filePath);
+      if (!await srcFile.exists()) return false;
+
+      final fileName = item.filePath.split(Platform.pathSeparator).last;
+      final destFilePath = '$trashPath/$fileName';
+
+      await srcFile.rename(destFilePath);
+
+      String? destThumbPath;
       if (item.thumbnailPath != null) {
-        final thumbFile = File(item.thumbnailPath!);
-        if (await thumbFile.exists()) {
-          await thumbFile.delete();
+        final srcThumb = File(item.thumbnailPath!);
+        if (await srcThumb.exists()) {
+          final thumbName =
+              item.thumbnailPath!.split(Platform.pathSeparator).last;
+          destThumbPath = '$trashPath/$thumbName';
+          await srcThumb.rename(destThumbPath);
         }
       }
+
+      final trashedVideo = VideoItem(
+        id: item.id,
+        title: item.title,
+        filePath: destFilePath,
+        fileSizeBytes: item.fileSizeBytes,
+        durationSeconds: item.durationSeconds,
+        uploader: item.uploader,
+        downloadedAt: item.downloadedAt,
+        thumbnailPath: destThumbPath,
+      );
+
+      final currentTrash = await loadTrashIndex();
+      currentTrash.removeWhere((t) => t.video.id == item.id);
+      currentTrash.insert(
+        0,
+        TrashedVideoItem(video: trashedVideo, deletedAt: DateTime.now()),
+      );
+      await _saveTrashIndex(currentTrash);
+
       return true;
     } catch (e) {
       return false;
     }
+  }
+
+  /// Videoyu Geri Dönüşüm Kutusundan ana indirme klasörüne geri yükler
+  Future<bool> restoreFromTrash(TrashedVideoItem trashed) async {
+    try {
+      final srcFile = File(trashed.video.filePath);
+      final fileName =
+          trashed.video.filePath.split(Platform.pathSeparator).last;
+      final destFilePath = '$_currentDownloadPath/$fileName';
+
+      if (await srcFile.exists()) {
+        await srcFile.rename(destFilePath);
+      }
+
+      if (trashed.video.thumbnailPath != null) {
+        final srcThumb = File(trashed.video.thumbnailPath!);
+        final thumbName =
+            trashed.video.thumbnailPath!.split(Platform.pathSeparator).last;
+        final destThumbPath = '$_currentDownloadPath/$thumbName';
+        if (await srcThumb.exists()) {
+          await srcThumb.rename(destThumbPath);
+        }
+      }
+
+      final currentTrash = await loadTrashIndex();
+      currentTrash.removeWhere((t) => t.video.id == trashed.video.id);
+      await _saveTrashIndex(currentTrash);
+
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// 24 saati (86400 saniye) dolduran çöpleri diskten kalıcı olarak temizler
+  Future<List<TrashedVideoItem>> purgeExpiredTrash() async {
+    try {
+      final currentTrash = await loadTrashIndex();
+      final List<TrashedVideoItem> activeTrash = [];
+
+      for (final item in currentTrash) {
+        if (item.isExpired) {
+          // Kalıcı sil
+          try {
+            final f = File(item.video.filePath);
+            if (await f.exists()) await f.delete();
+            if (item.video.thumbnailPath != null) {
+              final tf = File(item.video.thumbnailPath!);
+              if (await tf.exists()) await tf.delete();
+            }
+          } catch (_) {}
+        } else {
+          // Dosya gerçekten mevcutsa aktif çöp listesinde tut
+          if (File(item.video.filePath).existsSync()) {
+            activeTrash.add(item);
+          }
+        }
+      }
+
+      await _saveTrashIndex(activeTrash);
+      return activeTrash;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Belirli bir videoyu Geri Dönüşüm Kutusundan kalıcı olarak siler
+  Future<bool> permanentlyDelete(TrashedVideoItem trashed) async {
+    try {
+      final f = File(trashed.video.filePath);
+      if (await f.exists()) await f.delete();
+      if (trashed.video.thumbnailPath != null) {
+        final tf = File(trashed.video.thumbnailPath!);
+        if (await tf.exists()) await tf.delete();
+      }
+
+      final currentTrash = await loadTrashIndex();
+      currentTrash.removeWhere((t) => t.video.id == trashed.video.id);
+      await _saveTrashIndex(currentTrash);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Geri Dönüşüm Kutusundaki tüm videoları kalıcı olarak siler
+  Future<bool> emptyTrash() async {
+    try {
+      final currentTrash = await loadTrashIndex();
+      for (final item in currentTrash) {
+        try {
+          final f = File(item.video.filePath);
+          if (await f.exists()) await f.delete();
+          if (item.video.thumbnailPath != null) {
+            final tf = File(item.video.thumbnailPath!);
+            if (await tf.exists()) await tf.delete();
+          }
+        } catch (_) {}
+      }
+      await _saveTrashIndex([]);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Eski doğrudan silme metodu (geriye dönük uyumluluk)
+  Future<bool> deleteVideo(VideoItem item) async {
+    return await moveToTrash(item);
   }
 }

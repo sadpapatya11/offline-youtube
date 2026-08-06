@@ -28,13 +28,20 @@ class QueueScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('İNDİRME KUYRUĞU'),
         actions: [
-          if (hasErrors)
+          if (hasErrors) ...[
+            IconButton(
+              icon: const Icon(Icons.replay_rounded, color: Color(0xFF00E676)),
+              tooltip: 'Hataları Tekrar Dene',
+              onPressed: () => downloadProvider.retryAllErrors(
+                  settings: settingsProvider.settings),
+            ),
             IconButton(
               icon: const Icon(Icons.delete_sweep_rounded,
                   color: Color(0xFFFF5252)),
               tooltip: 'Hataları Temizle',
               onPressed: () => downloadProvider.clearErrors(),
             ),
+          ],
           if (hasCompleted || tasks.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.cleaning_services_rounded,
@@ -139,64 +146,52 @@ class QueueScreen extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 14),
-
-                        // Master Pause / Resume Button
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: isQueuePaused
-                              ? ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: AmoledTheme.pureWhite,
-                                    foregroundColor: AmoledTheme.pureBlack,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    elevation: 0,
-                                  ),
-                                  icon: const Icon(Icons.play_arrow_rounded,
-                                      size: 24),
-                                  label: const Text(
-                                    'TÜM KUYRUĞU DEVAM ETTİR',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 13,
-                                      letterSpacing: 0.8,
-                                    ),
-                                  ),
-                                  onPressed: () =>
-                                      downloadProvider.resumeQueue(
-                                    settings: settingsProvider.settings,
-                                  ),
-                                )
-                              : OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    side: const BorderSide(
-                                        color: Color(0xFFFFCC00), width: 1.5),
-                                    foregroundColor: const Color(0xFFFFCC00),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  icon: const Icon(Icons.pause_rounded, size: 22),
-                                  label: const Text(
-                                    'TÜM KUYRUĞU DURAKLAT',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 13,
-                                      letterSpacing: 0.8,
-                                    ),
-                                  ),
-                                  onPressed: () =>
-                                      downloadProvider.pauseQueue(),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: isQueuePaused
+                                      ? const Color(0xFF00E676)
+                                      : const Color(0xFFFFCC00),
+                                  foregroundColor: Colors.black,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8)),
                                 ),
+                                icon: Icon(
+                                  isQueuePaused
+                                      ? Icons.play_arrow_rounded
+                                      : Icons.pause_rounded,
+                                  size: 20,
+                                ),
+                                label: Text(
+                                  isQueuePaused
+                                      ? 'Kuyruğu Başlat'
+                                      : 'Kuyruğu Duraklat',
+                                  style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13),
+                                ),
+                                onPressed: () {
+                                  if (isQueuePaused) {
+                                    downloadProvider.resumeQueue(
+                                        settings: settingsProvider.settings);
+                                  } else {
+                                    downloadProvider.pauseQueue();
+                                  }
+                                },
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                   ),
                 ),
 
-                // 2. WI-FI KORUMA UYARI BANNERI (Eğer Mobil Veride ve Yalnızca Wi-Fi Seçiliyse)
+                // 2. Wİ-Fİ BEKLENİYOR UYARI BANNERI
                 if (isWifiWaiting)
                   Padding(
                     padding:
@@ -230,7 +225,7 @@ class QueueScreen extends StatelessWidget {
                     ),
                   ),
 
-                // 3. GÖREV LİSTESİ
+                // 3. GÖREV LİSTESİ (KAYDIRARAK SİLME DESTEKLİ)
                 Expanded(
                   child: ListView.separated(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -239,13 +234,75 @@ class QueueScreen extends StatelessWidget {
                         const SizedBox(height: 10),
                     itemBuilder: (context, index) {
                       final task = tasks[index];
-                      return DownloadTile(
-                        task: task,
-                        onPause: () => downloadProvider.pauseTask(task.id),
-                        onResume: () => downloadProvider.resumeTask(
-                            task.id, settingsProvider.settings),
-                        onCancel: () => downloadProvider.cancelTask(task.id),
-                        onDelete: () => downloadProvider.removeTask(task.id),
+                      return Dismissible(
+                        key: Key('queue_task_${task.id}'),
+                        direction: DismissDirection.horizontal,
+                        background: Container(
+                          alignment: Alignment.centerLeft,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE50914),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.delete_outline_rounded,
+                                  color: Colors.white, size: 26),
+                              SizedBox(width: 8),
+                              Text(
+                                'Kuyruktan Kaldır',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        secondaryBackground: Container(
+                          alignment: Alignment.centerRight,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE50914),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Text(
+                                'Kuyruktan Kaldır',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              SizedBox(width: 8),
+                              Icon(Icons.delete_outline_rounded,
+                                  color: Colors.white, size: 26),
+                            ],
+                          ),
+                        ),
+                        onDismissed: (direction) {
+                          downloadProvider.removeTask(task.id);
+                          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content:
+                                  Text('"${task.title}" kuyruktan kaldırıldı.'),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        child: DownloadTile(
+                          task: task,
+                          onPause: () => downloadProvider.pauseTask(task.id),
+                          onResume: () => downloadProvider.resumeTask(
+                              task.id, settingsProvider.settings),
+                          onCancel: () => downloadProvider.cancelTask(task.id),
+                          onDelete: () => downloadProvider.removeTask(task.id),
+                        ),
                       );
                     },
                   ),

@@ -535,7 +535,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 children: [
                   Text(
-                    'Offline YouTube v1.2.1 (Build 4)',
+                    'Offline YouTube v1.3.0 (Build 5)',
                     style: TextStyle(
                       color: AmoledTheme.pureWhite.withValues(alpha: 0.6),
                       fontSize: 12,
@@ -545,7 +545,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Kalıcı Hafıza • Animasyonlu Kuyruk • Sayaç Rozeti',
+                    'Geri Dönüşüm Kutusu • Kaydırarak Silme • Ağ Otomasyonu',
                     style: TextStyle(
                       color: AmoledTheme.subText.withValues(alpha: 0.5),
                       fontSize: 11,

@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/trashed_video_item.dart';
 import '../../models/video_item.dart';
+import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
 import '../widgets/amoled_fast_scroller.dart';
@@ -39,6 +41,53 @@ class DownloadsScreenState extends State<DownloadsScreen> {
         duration: const Duration(milliseconds: 350),
         curve: Curves.easeOutCubic,
       );
+    }
+  }
+
+  Future<void> _handleRefresh(BuildContext context) async {
+    final library = context.read<LibraryProvider>();
+    final settingsProvider =
+        Provider.of<SettingsProvider?>(context, listen: false);
+    final downloadProvider =
+        Provider.of<DownloadProvider?>(context, listen: false);
+
+    await library.refresh();
+
+    if (settingsProvider != null &&
+        downloadProvider != null &&
+        settingsProvider.settings.savedPlaylists.isNotEmpty) {
+      final result = await downloadProvider.syncSavedPlaylists(
+        settings: settingsProvider.settings,
+        libraryProvider: library,
+      );
+      await library.refresh();
+
+      if (context.mounted) {
+        if (result.deletedVideosRemoved > 0 || result.newVideosAdded > 0) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '🔄 Oynatma listesi güncellendi:\n'
+                '${result.deletedVideosRemoved > 0 ? "• ${result.deletedVideosRemoved} silinen video kaldırıldı\n" : ""}'
+                '${result.newVideosAdded > 0 ? "• ${result.newVideosAdded} yeni video kuyruğa eklendi" : ""}'
+                    .trim(),
+              ),
+              backgroundColor: AmoledTheme.cardDark,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        } else if (result.success) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✓ Oynatma listesi güncel, yeni değişiklik yok.'),
+              backgroundColor: AmoledTheme.cardDark,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -348,61 +397,75 @@ class DownloadsScreenState extends State<DownloadsScreen> {
 
             // Video Listesi
             Expanded(
-              child: library.isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                            AmoledTheme.pureWhite),
-                      ),
-                    )
-                  : filteredVideos.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.video_library_outlined,
-                                size: 64,
-                                color: Color(0xFF444444),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                _searchQuery.isEmpty
-                                    ? 'Henüz indirilmiş video yok'
-                                    : 'Aramanızla eşleşen video bulunamadı',
-                                style: const TextStyle(
-                                  color: AmoledTheme.subText,
-                                  fontSize: 14,
+              child: RefreshIndicator(
+                color: AmoledTheme.pureWhite,
+                backgroundColor: AmoledTheme.cardDark,
+                onRefresh: () => _handleRefresh(context),
+                child: library.isLoading
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                              AmoledTheme.pureWhite),
+                        ),
+                      )
+                    : filteredVideos.isEmpty
+                        ? LayoutBuilder(
+                            builder: (context, constraints) =>
+                                SingleChildScrollView(
+                              physics:
+                                  const AlwaysScrollableScrollPhysics(),
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                    minHeight: constraints.maxHeight),
+                                child: Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.video_library_outlined,
+                                        size: 64,
+                                        color: Color(0xFF444444),
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        _searchQuery.isEmpty
+                                            ? 'Henüz indirilmiş video yok\nYenilemek için aşağı çekin'
+                                            : 'Aramanızla eşleşen video bulunamadı',
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                          color: AmoledTheme.subText,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ],
-                          ),
-                        )
-                      : AmoledFastScroller(
-                          controller: _scrollController,
-                          child: GestureDetector(
-                            onPanStart: (details) {
-                              if (_isSelectionMode) {
-                                _handleDragSelect(
-                                    details.globalPosition, filteredVideos);
-                              }
-                            },
-                            onPanUpdate: (details) {
-                              if (_isSelectionMode) {
-                                _handleDragSelect(
-                                    details.globalPosition, filteredVideos);
-                              }
-                            },
-                            child: RefreshIndicator(
-                              color: AmoledTheme.pureWhite,
-                              backgroundColor: AmoledTheme.cardDark,
-                              onRefresh: () => library.refresh(),
-                              child: ListView.separated(
-                                controller: _scrollController,
-                                padding: const EdgeInsets.all(16),
-                                itemCount: filteredVideos.length,
-                                separatorBuilder: (context, index) =>
-                                    const SizedBox(height: 12),
+                            ),
+                          )
+                        : AmoledFastScroller(
+                              controller: _scrollController,
+                              child: GestureDetector(
+                                onPanStart: (details) {
+                                  if (_isSelectionMode) {
+                                    _handleDragSelect(
+                                        details.globalPosition, filteredVideos);
+                                  }
+                                },
+                                onPanUpdate: (details) {
+                                  if (_isSelectionMode) {
+                                    _handleDragSelect(
+                                        details.globalPosition, filteredVideos);
+                                  }
+                                },
+                                child: ListView.separated(
+                                  physics:
+                                      const AlwaysScrollableScrollPhysics(),
+                                  controller: _scrollController,
+                                  padding: const EdgeInsets.all(16),
+                                  itemCount: filteredVideos.length,
+                                  separatorBuilder: (context, index) =>
+                                      const SizedBox(height: 12),
                                 itemBuilder: (context, index) {
                                   final video = filteredVideos[index];
                                   final isSelected =

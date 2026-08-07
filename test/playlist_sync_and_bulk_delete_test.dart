@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:offlineyoutube/models/video_item.dart';
+import 'package:offlineyoutube/providers/download_provider.dart';
 import 'package:offlineyoutube/providers/library_provider.dart';
 import 'package:offlineyoutube/ui/screens/downloads_screen.dart';
 import 'package:offlineyoutube/ui/widgets/video_tile.dart';
@@ -122,6 +123,39 @@ void main() {
 
       await tester.longPress(find.byType(VideoTile));
       expect(longPressed, true);
+    });
+
+    testWidgets('DownloadsScreen renders RefreshIndicator correctly',
+        (tester) async {
+      final libraryProvider = LibraryProvider();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MultiProvider(
+            providers: [
+              ChangeNotifierProvider<LibraryProvider>.value(
+                value: libraryProvider,
+              ),
+            ],
+            child: const DownloadsScreen(),
+          ),
+        ),
+      );
+
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.byType(RefreshIndicator), findsOneWidget);
+    });
+
+    test('PlaylistSyncResult calculates fields accurately', () {
+      const res = PlaylistSyncResult(
+        success: true,
+        newVideosAdded: 3,
+        deletedVideosRemoved: 2,
+      );
+      expect(res.success, true);
+      expect(res.newVideosAdded, 3);
+      expect(res.deletedVideosRemoved, 2);
     });
   });
 }

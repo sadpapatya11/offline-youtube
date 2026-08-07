@@ -11,6 +11,20 @@ import '../services/native_bridge.dart';
 import '../services/network_manager.dart';
 import '../services/storage_manager.dart';
 
+class PlaylistSyncResult {
+  final bool success;
+  final int newVideosAdded;
+  final int deletedVideosRemoved;
+  final String? message;
+
+  const PlaylistSyncResult({
+    required this.success,
+    this.newVideosAdded = 0,
+    this.deletedVideosRemoved = 0,
+    this.message,
+  });
+}
+
 class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const String _tasksPrefKey = 'offline_youtube_persisted_tasks_v3';
   static const String _queuePausedPrefKey = 'offline_youtube_queue_paused_v3';
@@ -1026,15 +1040,29 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// - YouTube'dan silinmiş videoları kuyruktan ve indirilenlerden temizler (çöpe taşır).
   /// - Yeni eklenen videoları kuyruğun en tepesine ekler.
   /// - İndirme kurallarını (Wi-Fi, kota, saat) harfiyen uygular.
-  Future<void> syncSavedPlaylists({
+  Future<PlaylistSyncResult> syncSavedPlaylists({
     required AppSettings settings,
     required LibraryProvider libraryProvider,
   }) async {
-    if (_isSyncingPlaylists) return;
-    if (settings.savedPlaylists.isEmpty) return;
+    if (_isSyncingPlaylists) {
+      return const PlaylistSyncResult(
+        success: false,
+        message: 'Senkronizasyon zaten devam ediyor',
+      );
+    }
+    if (settings.savedPlaylists.isEmpty) {
+      return const PlaylistSyncResult(
+        success: false,
+        message: 'Kayıtlı oynatma listesi bulunamadı',
+      );
+    }
 
     _isSyncingPlaylists = true;
     notifyListeners();
+
+    int deletedCount = 0;
+    int addedCount = 0;
+    bool anyPlaylistSucceeded = false;
 
     try {
       final downloadedVideos =
@@ -1043,6 +1071,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       final Set<String> currentOnlineVideoIds = {};
       final Set<String> currentOnlineUrls = {};
+      final Set<String> currentOnlineTitles = {};
       final List<Map<String, dynamic>> allNewEntries = [];
 
       for (final playlistUrl in settings.savedPlaylists) {
@@ -1050,17 +1079,26 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         try {
           final entries =
               await NativeBridge.instance.fetchPlaylistEntries(playlistUrl);
+          if (entries.isNotEmpty) {
+            anyPlaylistSucceeded = true;
+          }
           for (final entry in entries) {
-            final u = entry['url'] as String? ?? '';
-            final vid = VideoItem.extractVideoId(u);
-            if (vid != null) currentOnlineVideoIds.add(vid);
+            final u = (entry['url'] as String? ?? '').trim();
+            final vid = VideoItem.extractVideoId(u) ??
+                (entry['id'] as String? ?? '').trim();
+            if (vid.isNotEmpty) currentOnlineVideoIds.add(vid);
             if (u.isNotEmpty) currentOnlineUrls.add(u);
+            final t = (entry['title'] as String? ?? '').trim();
+            if (t.isNotEmpty &&
+                !t.toLowerCase().contains('[deleted') &&
+                !t.toLowerCase().contains('[private')) {
+              currentOnlineTitles.add(t.toLowerCase());
+            }
 
             final isAlreadyDownloaded = downloadedVideos.any((v) =>
                 (v.youtubeId != null && v.youtubeId == vid) ||
                 (v.sourceUrl != null && v.sourceUrl == u) ||
-                v.title.trim().toLowerCase() ==
-                    (entry['title'] as String? ?? '').trim().toLowerCase());
+                v.title.trim().toLowerCase() == t.toLowerCase());
 
             final isAlreadyInQueue = currentQueueTasks.any((t) =>
                 (VideoItem.extractVideoId(t.url) != null &&
@@ -1076,25 +1114,41 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
-      // 1. YouTube'dan SİLİNMİŞ videoları temizle
-      if (currentOnlineVideoIds.isNotEmpty) {
+      // 1. YouTube'dan SİLİNMİŞ videoları temizle (Sadece liste başarıyla çekilebildiyse)
+      if (anyPlaylistSucceeded &&
+          (currentOnlineVideoIds.isNotEmpty || currentOnlineTitles.isNotEmpty)) {
         // Kuyrukta olup online listede olmayanları temizle (aktif inen hariç)
         final tasksToRemove = _tasks.where((t) {
           final vid = VideoItem.extractVideoId(t.url);
-          return vid != null &&
-              !currentOnlineVideoIds.contains(vid) &&
+          final titleLower = t.title.trim().toLowerCase();
+          final matchesId =
+              vid != null && currentOnlineVideoIds.contains(vid);
+          final matchesTitle = titleLower.isNotEmpty &&
+              currentOnlineTitles.contains(titleLower);
+          return !matchesId &&
+              !matchesTitle &&
               t.status != DownloadStatus.downloading;
         }).toList();
 
         for (final t in tasksToRemove) {
           _tasks.removeWhere((item) => item.id == t.id);
+          deletedCount++;
         }
 
         // İndirilenlerden silinenleri Geri Dönüşüm Kutusuna taşı
         for (final v in downloadedVideos) {
-          if (v.youtubeId != null &&
-              !currentOnlineVideoIds.contains(v.youtubeId)) {
-            await libraryProvider.deleteVideo(v);
+          final vid = v.youtubeId;
+          final titleLower = v.title.trim().toLowerCase();
+          final matchesId =
+              vid != null && currentOnlineVideoIds.contains(vid);
+          final matchesTitle = titleLower.isNotEmpty &&
+              currentOnlineTitles.contains(titleLower);
+
+          if (!matchesId && !matchesTitle) {
+            final deleted = await libraryProvider.deleteVideo(v);
+            if (deleted) {
+              deletedCount++;
+            }
           }
         }
       }
@@ -1130,7 +1184,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         if (thumbnail.isEmpty || thumbnail.toLowerCase() == 'null') {
           final vid = VideoItem.extractVideoId(videoUrl);
-          thumbnail = vid != null ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg' : '';
+          thumbnail =
+              vid != null ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg' : '';
         }
 
         if (uploader.toLowerCase() == 'null') {
@@ -1154,6 +1209,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         );
 
         _tasks.insert(0, newTask);
+        addedCount++;
       }
 
       await _saveTasksToStorage();
@@ -1162,8 +1218,17 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (!_isQueuePaused) {
         await processNextQueue(settings: settings);
       }
-    } catch (_) {
-      // Hata sessizce yönetilir
+
+      return PlaylistSyncResult(
+        success: anyPlaylistSucceeded,
+        newVideosAdded: addedCount,
+        deletedVideosRemoved: deletedCount,
+      );
+    } catch (e) {
+      return PlaylistSyncResult(
+        success: false,
+        message: e.toString(),
+      );
     } finally {
       _isSyncingPlaylists = false;
       notifyListeners();

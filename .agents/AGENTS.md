@@ -8,3 +8,4 @@
    - Release APK'yı derle (`flutter build apk --release`),
    - Bağlı telefona temiz yükle (`adb install -r -d build/app/outputs/flutter-apk/app-release.apk`),
    - GitHub reposunu (`git push origin main`) otomatik olarak güncelle.
+5. Kullanıcıya gereksiz sorular sorma ve onay isteme; tüm yetkiler peşin olarak verilmiştir. İstekleri ve sorunları doğrudan baştan sona analiz et, en iyi çözümü tasarla, uygula, test et, derle ve telefona kur.

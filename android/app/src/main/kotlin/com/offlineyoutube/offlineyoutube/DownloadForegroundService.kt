@@ -64,7 +64,6 @@ class DownloadForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        acquireWakeLocks()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -133,9 +132,10 @@ class DownloadForegroundService : Service() {
     }
 
     private fun startDownloadTask(taskId: String, url: String, outputPath: String, title: String) {
+        acquireLocksIfNeeded()
         val outputDir = if (outputPath.isNotEmpty()) File(outputPath) else File(getExternalFilesDir(null), "downloads")
-        val notifId = getNotificationId(taskId)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        var lastNotificationTime = 0L
 
         val job = serviceScope.launch {
             emitEvent(mapOf(
@@ -150,14 +150,18 @@ class DownloadForegroundService : Service() {
                 url = url,
                 outputDir = outputDir,
                 onProgress = { progress, eta, speed, totalSize, downloadedSize ->
-                    val sizeInfo = if (totalSize.isNotEmpty()) " [$totalSize]" else ""
-                    val notification = buildNotification(
-                        title = title,
-                        content = "$speed$sizeInfo - Kalan: ${formatEta(eta)}",
-                        progress = progress.toInt(),
-                        indeterminate = false
-                    )
-                    manager.notify(SERVICE_NOTIFICATION_ID, notification)
+                    val now = System.currentTimeMillis()
+                    if (progress >= 100f || now - lastNotificationTime >= 1000L) {
+                        lastNotificationTime = now
+                        val sizeInfo = if (totalSize.isNotEmpty()) " [$totalSize]" else ""
+                        val notification = buildNotification(
+                            title = title,
+                            content = "$speed$sizeInfo - Kalan: ${formatEta(eta)}",
+                            progress = progress.toInt(),
+                            indeterminate = false
+                        )
+                        manager.notify(SERVICE_NOTIFICATION_ID, notification)
+                    }
 
                     emitEvent(mapOf(
                         "taskId" to taskId,
@@ -219,10 +223,7 @@ class DownloadForegroundService : Service() {
 
     private fun checkGracefulStop() {
         if (activeDownloadJobs.isEmpty()) {
-            // İndirme bittiğinde hemen kapanmak yerine 45 saniye bekle.
-            // Bu sürede Flutter kuyruktaki sıradaki videoyu startDownload ile başlatır.
-            // Arka planda veya ekran kilitliyken foreground service kesilmediği için
-            // Android 14 ForegroundServiceStartNotAllowedException hatası vermez ve zincir kopmaz!
+            releaseLocksIfIdle()
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val waitingNotification = buildNotification(
                 title = "Offline YouTube",
@@ -252,6 +253,7 @@ class DownloadForegroundService : Service() {
             YtDlpNativeManager.stopDownload(taskId)
         }
         activeDownloadJobs.clear()
+        releaseLocksIfIdle()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -303,25 +305,50 @@ class DownloadForegroundService : Service() {
             .build()
     }
 
-    private fun acquireWakeLocks() {
+    private fun acquireLocksIfNeeded() {
         try {
-            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "offlineyoutube:download_wakelock").apply {
-                setReferenceCounted(false)
-                acquire(24 * 60 * 60 * 1000L) // 24 hours max
+            if (wakeLock == null) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "offlineyoutube:download_wakelock").apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wakeLock?.isHeld != true) {
+                wakeLock?.acquire(2 * 60 * 60 * 1000L) // 2 hours max safety
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to acquire wakeLock: ${e.message}")
+            Log.e(TAG, "WakeLock acquire error: ${e.message}")
         }
 
         try {
-            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "offlineyoutube:download_wifilock").apply {
-                setReferenceCounted(false)
-                acquire()
+            if (wifiLock == null) {
+                val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL, "offlineyoutube:download_wifilock").apply {
+                    setReferenceCounted(false)
+                }
+            }
+            if (wifiLock?.isHeld != true) {
+                wifiLock?.acquire()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to acquire wifiLock: ${e.message}")
+            Log.e(TAG, "WifiLock acquire error: ${e.message}")
+        }
+    }
+
+    private fun releaseLocksIfIdle() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) it.release()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "WakeLock release error: ${e.message}")
+        }
+        try {
+            wifiLock?.let {
+                if (it.isHeld) it.release()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "WifiLock release error: ${e.message}")
         }
     }
 
@@ -335,12 +362,7 @@ class DownloadForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         serviceJob.cancel()
-        wakeLock?.let {
-            if (it.isHeld) it.release()
-        }
-        wifiLock?.let {
-            if (it.isHeld) it.release()
-        }
+        releaseLocksIfIdle()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -20,8 +20,10 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
-    _isLoading = true;
-    notifyListeners();
+    if (_videos.isEmpty) {
+      _isLoading = true;
+      notifyListeners();
+    }
 
     // 24 saati geçmiş çöpleri otomatik temizle
     _trashedVideos = await StorageManager.instance.purgeExpiredTrash();

@@ -359,7 +359,7 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                 color: AmoledTheme.pureWhite,
                 backgroundColor: AmoledTheme.cardDark,
                 onRefresh: () => _handleRefresh(context),
-                child: library.isLoading
+                child: (library.isLoading && library.videos.isEmpty)
                     ? const Center(
                         child: CircularProgressIndicator(
                           valueColor: AlwaysStoppedAnimation<Color>(

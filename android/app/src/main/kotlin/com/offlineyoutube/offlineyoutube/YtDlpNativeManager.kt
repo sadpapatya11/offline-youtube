@@ -263,14 +263,19 @@ object YtDlpNativeManager {
                 addOption("--fragment-retries", "10")
             }
 
+            var lastProgressEmitTime = 0L
             val response: YoutubeDLResponse = YoutubeDL.getInstance().execute(
                 request,
                 taskId
             ) { progress, etaInSeconds, line ->
-                val speed = parseSpeed(line)
-                val totalSize = parseTotalSize(line)
-                val downloadedSize = parseDownloadedSize(line)
-                onProgress(progress, etaInSeconds, speed, totalSize, downloadedSize)
+                val now = System.currentTimeMillis()
+                if (progress >= 100f || now - lastProgressEmitTime >= 500L) {
+                    lastProgressEmitTime = now
+                    val speed = parseSpeed(line)
+                    val totalSize = parseTotalSize(line)
+                    val downloadedSize = parseDownloadedSize(line)
+                    onProgress(progress, etaInSeconds, speed, totalSize, downloadedSize)
+                }
             }
 
             activeTasks.remove(taskId)

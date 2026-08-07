@@ -495,7 +495,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 children: [
                   Text(
-                    'Offline YouTube v1.4.4 (Build 11)',
+                    'Offline YouTube v1.4.7 (Build 14)',
                     style: TextStyle(
                       color: AmoledTheme.pureWhite.withValues(alpha: 0.6),
                       fontSize: 12,

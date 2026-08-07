@@ -120,16 +120,33 @@ object YtDlpNativeManager {
                     val rawArray = jsonObj.getJSONArray("entries")
                     for (i in 0 until rawArray.length()) {
                         val item = rawArray.optJSONObject(i) ?: continue
-                        val itemId = item.optString("id", "")
-                        val itemTitle = item.optString("title", "Video ${i + 1}")
+                        val itemId = item.optString("id", "").trim()
+                        var itemTitle = item.optString("title", "").trim()
+                        if (itemTitle.isEmpty() || itemTitle.equals("null", ignoreCase = true)) {
+                            itemTitle = if (itemId.isNotEmpty()) "Video ($itemId)" else "Video ${i + 1}"
+                        }
+
+                        // Skip deleted/private/unavailable videos
+                        val lowerTitle = itemTitle.lowercase()
+                        if (lowerTitle.contains("[deleted") || lowerTitle.contains("[private") || lowerTitle.contains("[unavailable")) {
+                            continue
+                        }
+
                         val itemDuration = item.optInt("duration", 0)
-                        val itemThumbnail = item.optString("thumbnail", "")
-                        val itemUploader = item.optString("uploader", "")
-                        val itemUploadDate = item.optString("upload_date", "")
+                        var itemThumbnail = item.optString("thumbnail", "").trim()
+                        if (itemThumbnail.equals("null", ignoreCase = true)) {
+                            itemThumbnail = if (itemId.isNotEmpty()) "https://i.ytimg.com/vi/$itemId/hqdefault.jpg" else ""
+                        }
+                        var itemUploader = item.optString("uploader", "").trim()
+                        if (itemUploader.equals("null", ignoreCase = true)) {
+                            itemUploader = ""
+                        }
+                        val itemUploadDate = item.optString("upload_date", "").trim()
                         val itemUrl = if (itemId.isNotEmpty()) {
                             "https://www.youtube.com/watch?v=$itemId"
                         } else {
-                            item.optString("url", "")
+                            val u = item.optString("url", "").trim()
+                            if (u.equals("null", ignoreCase = true)) "" else u
                         }
 
                         if (itemUrl.isNotEmpty()) {
@@ -145,12 +162,21 @@ object YtDlpNativeManager {
                         }
                     }
                 } else {
-                    val id = jsonObj.optString("id", "")
-                    val title = jsonObj.optString("title", "Video")
+                    val id = jsonObj.optString("id", "").trim()
+                    var title = jsonObj.optString("title", "").trim()
+                    if (title.isEmpty() || title.equals("null", ignoreCase = true)) {
+                        title = if (id.isNotEmpty()) "Video ($id)" else "Video"
+                    }
                     val duration = jsonObj.optInt("duration", 0)
-                    val thumbnail = jsonObj.optString("thumbnail", "")
-                    val uploader = jsonObj.optString("uploader", "")
-                    val uploadDate = jsonObj.optString("upload_date", "")
+                    var thumbnail = jsonObj.optString("thumbnail", "").trim()
+                    if (thumbnail.equals("null", ignoreCase = true)) {
+                        thumbnail = if (id.isNotEmpty()) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else ""
+                    }
+                    var uploader = jsonObj.optString("uploader", "").trim()
+                    if (uploader.equals("null", ignoreCase = true)) {
+                        uploader = ""
+                    }
+                    val uploadDate = jsonObj.optString("upload_date", "").trim()
 
                     entries.add(mapOf(
                         "id" to id,

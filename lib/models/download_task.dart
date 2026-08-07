@@ -1,3 +1,5 @@
+import 'video_item.dart';
+
 enum DownloadStatus {
   queued,
   fetchingMetadata,
@@ -63,18 +65,37 @@ class DownloadTask {
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  String get displayTitle {
+    final t = title.trim();
+    if (t.isEmpty ||
+        t.toLowerCase() == 'null' ||
+        t.toLowerCase() == 'null null' ||
+        t.toLowerCase().contains('[deleted') ||
+        t.toLowerCase().contains('[private') ||
+        t.toLowerCase().contains('[unavailable')) {
+      final vid = VideoItem.extractVideoId(url);
+      if (vid != null && vid.isNotEmpty) {
+        return 'Video ($vid)';
+      }
+      return 'YouTube Videosu';
+    }
+    return t;
+  }
+
   String get formattedSizeInfo {
     // 1. İndirme esnasında hem indirilen hem toplam boyut varsa (örn: "45.2 MB / 120.5 MB")
     if (status == DownloadStatus.downloading &&
         downloadedSize != null &&
         downloadedSize!.isNotEmpty &&
+        downloadedSize != 'null' &&
         totalSize != null &&
-        totalSize!.isNotEmpty) {
+        totalSize!.isNotEmpty &&
+        totalSize != 'null') {
       return '$downloadedSize / $totalSize';
     }
 
     // 2. Sadece toplam boyut varsa (örn: "120.5 MB")
-    if (totalSize != null && totalSize!.isNotEmpty) {
+    if (totalSize != null && totalSize!.isNotEmpty && totalSize != 'null') {
       return totalSize!;
     }
 
@@ -166,24 +187,35 @@ class DownloadTask {
       parsedStatus = DownloadStatus.queued;
     }
 
+    String cleanStr(dynamic v) {
+      final s = v?.toString().trim() ?? '';
+      return (s.toLowerCase() == 'null' || s.isEmpty) ? '' : s;
+    }
+
+    final rawTitle = cleanStr(json['title']);
+    final rawThumb = cleanStr(json['thumbnail']);
+    final rawUploader = cleanStr(json['uploader']);
+    final rawTotalSize = cleanStr(json['totalSize']);
+    final rawDownloadedSize = cleanStr(json['downloadedSize']);
+
     return DownloadTask(
       id: json['id'] as String? ?? '',
       url: json['url'] as String? ?? '',
-      title: json['title'] as String? ?? '',
-      thumbnail: json['thumbnail'] as String?,
+      title: rawTitle.isNotEmpty ? rawTitle : 'YouTube Videosu',
+      thumbnail: rawThumb.isNotEmpty ? rawThumb : null,
       durationSeconds: json['durationSeconds'] as int?,
-      uploader: json['uploader'] as String?,
+      uploader: rawUploader.isNotEmpty ? rawUploader : null,
       estimatedSizeBytes: json['estimatedSizeBytes'] as int?,
       status: parsedStatus,
       progress: (json['progress'] as num?)?.toDouble() ?? 0.0,
-      speed: json['speed'] as String? ?? '',
+      speed: cleanStr(json['speed']),
       etaSeconds: (json['etaSeconds'] as num?)?.toInt() ?? 0,
       errorMessage: json['errorMessage'] as String?,
       hadPreviousError: json['hadPreviousError'] as bool? ??
           (parsedStatus == DownloadStatus.error ||
               json['errorMessage'] != null),
-      totalSize: json['totalSize'] as String?,
-      downloadedSize: json['downloadedSize'] as String?,
+      totalSize: rawTotalSize.isNotEmpty ? rawTotalSize : null,
+      downloadedSize: rawDownloadedSize.isNotEmpty ? rawDownloadedSize : null,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
           : DateTime.now(),

@@ -161,83 +161,46 @@ class _AmoledFastScrollerState extends State<AmoledFastScroller>
                 child: const SizedBox.expand(),
               ),
             ),
-            // Scrollbar Thumb & Optional Drag Indicator
+            // Scrollbar Thumb
             Positioned(
               top: thumbTop,
               right: 4,
               child: FadeTransition(
                 opacity: _fadeAnimation,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Floating percentage bubble during active drag
-                    if (_isDragging) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
-                        margin: const EdgeInsets.only(right: 8),
-                        decoration: BoxDecoration(
-                          color: AmoledTheme.cardDark,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: AmoledTheme.brandRed.withValues(alpha: 0.6),
-                            width: 1.2,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AmoledTheme.brandRed.withValues(alpha: 0.25),
-                              blurRadius: 10,
-                              spreadRadius: 1,
-                            ),
-                          ],
-                        ),
-                        child: Text(
-                          '${(_thumbPositionRatio * 100).toInt()}%',
-                          style: const TextStyle(
-                            color: AmoledTheme.pureWhite,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  width: _isDragging ? 7.0 : 4.5,
+                  height: thumbHeight,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: _isDragging
+                          ? [
+                              AmoledTheme.brandRed,
+                              const Color(0xFFFF5252),
+                            ]
+                          : [
+                              AmoledTheme.brandRed.withValues(alpha: 0.85),
+                              AmoledTheme.brandRed.withValues(alpha: 0.5),
+                            ],
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: _isDragging
+                          ? Colors.white.withValues(alpha: 0.6)
+                          : Colors.transparent,
+                      width: 0.8,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AmoledTheme.brandRed.withValues(
+                            alpha: _isDragging ? 0.6 : 0.25),
+                        blurRadius: _isDragging ? 8 : 4,
+                        spreadRadius: _isDragging ? 1 : 0,
                       ),
                     ],
-                    // AMOLED Fast Scroll Thumb
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      width: _isDragging ? 7.0 : 4.5,
-                      height: thumbHeight,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: _isDragging
-                              ? [
-                                  AmoledTheme.brandRed,
-                                  const Color(0xFFFF5252),
-                                ]
-                              : [
-                                  AmoledTheme.brandRed.withValues(alpha: 0.85),
-                                  AmoledTheme.brandRed.withValues(alpha: 0.5),
-                                ],
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: _isDragging
-                              ? Colors.white.withValues(alpha: 0.6)
-                              : Colors.transparent,
-                          width: 0.8,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AmoledTheme.brandRed.withValues(
-                                alpha: _isDragging ? 0.6 : 0.25),
-                            blurRadius: _isDragging ? 8 : 4,
-                            spreadRadius: _isDragging ? 1 : 0,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),

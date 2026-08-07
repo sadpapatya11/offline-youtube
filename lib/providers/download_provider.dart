@@ -95,6 +95,23 @@ class DownloadProvider extends ChangeNotifier {
             final Map<String, dynamic> jsonMap = jsonDecode(itemStr);
             final task = DownloadTask.fromJson(jsonMap);
 
+            // Başlık null veya geçersiz ise düzelt
+            final cleanTitle = task.title.trim();
+            if (cleanTitle.isEmpty ||
+                cleanTitle.toLowerCase() == 'null' ||
+                cleanTitle.toLowerCase() == 'null null') {
+              final vid = VideoItem.extractVideoId(task.url);
+              task.title = vid != null ? 'Video ($vid)' : 'YouTube Videosu';
+            }
+
+            // Silinmiş/gizli videoları kuyruktan tamamen temizle
+            final lowerTitle = task.title.toLowerCase();
+            if (lowerTitle.contains('[deleted') ||
+                lowerTitle.contains('[private') ||
+                lowerTitle.contains('[unavailable')) {
+              continue;
+            }
+
             // Uygulama kapatılıp açıldığında bitmemiş olan tüm görevleri (downloading, paused, fetching)
             // 'queued' durumuna alarak kuyruğun otomatik devam etmesini sağla
             if (task.status == DownloadStatus.downloading ||
@@ -556,6 +573,49 @@ class DownloadProvider extends ChangeNotifier {
       notifyListeners();
       _saveTasksToStorage();
 
+      // Görev başlığı jenerik/eksik ise veya küçük resmi yoksa arka planda gerçek verileri çekip güncelle
+      final hasGenericTitle = nextTask.title.isEmpty ||
+          nextTask.title.toLowerCase().startsWith('video') ||
+          nextTask.title.toLowerCase() == 'null' ||
+          nextTask.thumbnail == null ||
+          nextTask.thumbnail!.isEmpty;
+
+      if (hasGenericTitle) {
+        NativeBridge.instance.fetchMetadata(nextTask.url).then((meta) {
+          if (meta != null) {
+            final t = meta['title']?.toString().trim();
+            final th = meta['thumbnail']?.toString().trim();
+            final dur = meta['duration'] as int?;
+            final up = meta['uploader']?.toString().trim();
+            bool changed = false;
+            if (t != null &&
+                t.isNotEmpty &&
+                t.toLowerCase() != 'null' &&
+                !t.toLowerCase().contains('[deleted') &&
+                !t.toLowerCase().contains('[private')) {
+              nextTask.title = t;
+              changed = true;
+            }
+            if (th != null && th.isNotEmpty && th.toLowerCase() != 'null') {
+              nextTask.thumbnail = th;
+              changed = true;
+            }
+            if (dur != null && dur > 0) {
+              nextTask.durationSeconds = dur;
+              changed = true;
+            }
+            if (up != null && up.isNotEmpty && up.toLowerCase() != 'null') {
+              nextTask.uploader = up;
+              changed = true;
+            }
+            if (changed) {
+              notifyListeners();
+              _saveTasksToStorage();
+            }
+          }
+        }).catchError((_) {});
+      }
+
       final started = await NativeBridge.instance.startDownload(
         taskId: nextTask.id,
         url: nextTask.url,
@@ -849,13 +909,34 @@ class DownloadProvider extends ChangeNotifier {
 
       for (int i = 0; i < entries.length; i++) {
         final entry = entries[i];
-        final videoUrl = entry['url'] as String? ?? '';
-        final title = entry['title'] as String? ?? 'Video ${i + 1}';
+        final videoUrl = (entry['url'] as String? ?? '').trim();
+        var title = (entry['title'] as String? ?? '').trim();
         final duration = (entry['duration'] as num?)?.toInt() ?? 0;
-        final thumbnail = entry['thumbnail'] as String?;
-        final uploader = entry['uploader'] as String?;
+        var thumbnail = (entry['thumbnail'] as String? ?? '').trim();
+        var uploader = (entry['uploader'] as String? ?? '').trim();
 
-        if (videoUrl.isEmpty) continue;
+        if (videoUrl.isEmpty || videoUrl.toLowerCase() == 'null') continue;
+
+        final lowerTitle = title.toLowerCase();
+        if (lowerTitle.contains('[deleted') ||
+            lowerTitle.contains('[private') ||
+            lowerTitle.contains('[unavailable')) {
+          continue;
+        }
+
+        if (title.isEmpty || lowerTitle == 'null' || lowerTitle == 'null null') {
+          final vid = VideoItem.extractVideoId(videoUrl);
+          title = vid != null ? 'Video ($vid)' : 'Video ${i + 1}';
+        }
+
+        if (thumbnail.isEmpty || thumbnail.toLowerCase() == 'null') {
+          final vid = VideoItem.extractVideoId(videoUrl);
+          thumbnail = vid != null ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg' : '';
+        }
+
+        if (uploader.toLowerCase() == 'null') {
+          uploader = '';
+        }
 
         if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) {
           skippedCount++;
@@ -868,9 +949,9 @@ class DownloadProvider extends ChangeNotifier {
           id: taskId,
           url: videoUrl,
           title: title,
-          thumbnail: thumbnail,
+          thumbnail: thumbnail.isNotEmpty ? thumbnail : null,
           durationSeconds: duration,
-          uploader: uploader,
+          uploader: uploader.isNotEmpty ? uploader : null,
           status: DownloadStatus.queued,
         );
 
@@ -985,13 +1066,34 @@ class DownloadProvider extends ChangeNotifier {
 
       for (int i = allNewEntries.length - 1; i >= 0; i--) {
         final entry = allNewEntries[i];
-        final videoUrl = entry['url'] as String? ?? '';
-        final title = entry['title'] as String? ?? 'Video';
+        final videoUrl = (entry['url'] as String? ?? '').trim();
+        var title = (entry['title'] as String? ?? '').trim();
         final duration = (entry['duration'] as num?)?.toInt() ?? 0;
-        final thumbnail = entry['thumbnail'] as String?;
-        final uploader = entry['uploader'] as String?;
+        var thumbnail = (entry['thumbnail'] as String? ?? '').trim();
+        var uploader = (entry['uploader'] as String? ?? '').trim();
 
-        if (videoUrl.isEmpty) continue;
+        if (videoUrl.isEmpty || videoUrl.toLowerCase() == 'null') continue;
+
+        final lowerTitle = title.toLowerCase();
+        if (lowerTitle.contains('[deleted') ||
+            lowerTitle.contains('[private') ||
+            lowerTitle.contains('[unavailable')) {
+          continue;
+        }
+
+        if (title.isEmpty || lowerTitle == 'null' || lowerTitle == 'null null') {
+          final vid = VideoItem.extractVideoId(videoUrl);
+          title = vid != null ? 'Video ($vid)' : 'YouTube Videosu';
+        }
+
+        if (thumbnail.isEmpty || thumbnail.toLowerCase() == 'null') {
+          final vid = VideoItem.extractVideoId(videoUrl);
+          thumbnail = vid != null ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg' : '';
+        }
+
+        if (uploader.toLowerCase() == 'null') {
+          uploader = '';
+        }
 
         if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) {
           continue;
@@ -1003,9 +1105,9 @@ class DownloadProvider extends ChangeNotifier {
           id: taskId,
           url: videoUrl,
           title: title,
-          thumbnail: thumbnail,
+          thumbnail: thumbnail.isNotEmpty ? thumbnail : null,
           durationSeconds: duration,
-          uploader: uploader,
+          uploader: uploader.isNotEmpty ? uploader : null,
           status: DownloadStatus.queued,
         );
 

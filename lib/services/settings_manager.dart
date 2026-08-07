@@ -26,6 +26,7 @@ class SettingsManager {
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonStr = jsonEncode(settings.toJson());
+      await prefs.setString(_keySettings, jsonStr);
     } catch (e) {
       // Ignored
     }

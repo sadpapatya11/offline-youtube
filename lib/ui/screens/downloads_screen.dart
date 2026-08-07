@@ -46,49 +46,7 @@ class DownloadsScreenState extends State<DownloadsScreen> {
 
   Future<void> _handleRefresh(BuildContext context) async {
     final library = context.read<LibraryProvider>();
-    final settingsProvider =
-        Provider.of<SettingsProvider?>(context, listen: false);
-    final downloadProvider =
-        Provider.of<DownloadProvider?>(context, listen: false);
-
     await library.refresh();
-
-    if (settingsProvider != null &&
-        downloadProvider != null &&
-        settingsProvider.settings.savedPlaylists.isNotEmpty) {
-      final result = await downloadProvider.syncSavedPlaylists(
-        settings: settingsProvider.settings,
-        libraryProvider: library,
-      );
-      await library.refresh();
-
-      if (context.mounted) {
-        if (result.deletedVideosRemoved > 0 || result.newVideosAdded > 0) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '🔄 Oynatma listesi güncellendi:\n'
-                '${result.deletedVideosRemoved > 0 ? "• ${result.deletedVideosRemoved} silinen video kaldırıldı\n" : ""}'
-                '${result.newVideosAdded > 0 ? "• ${result.newVideosAdded} yeni video kuyruğa eklendi" : ""}'
-                    .trim(),
-              ),
-              backgroundColor: AmoledTheme.cardDark,
-              duration: const Duration(seconds: 4),
-            ),
-          );
-        } else if (result.success) {
-          ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('✓ Oynatma listesi güncel, yeni değişiklik yok.'),
-              backgroundColor: AmoledTheme.cardDark,
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
-      }
-    }
   }
 
   void _enterSelectionMode([String? initialSelectedId]) {

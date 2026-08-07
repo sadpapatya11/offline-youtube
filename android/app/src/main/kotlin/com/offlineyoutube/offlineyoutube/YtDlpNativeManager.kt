@@ -70,6 +70,8 @@ object YtDlpNativeManager {
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
+                addOption("--no-cache-dir")
+                addOption("--no-check-certificates")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
                 addOption("--extractor-args", "youtube:lang=tr")
                 addOption("--geo-bypass-country", "TR")
@@ -104,6 +106,8 @@ object YtDlpNativeManager {
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
+                addOption("--no-cache-dir")
+                addOption("--no-check-certificates")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
                 addOption("--extractor-args", "youtube:lang=tr")
                 addOption("--geo-bypass-country", "TR")

@@ -1114,44 +1114,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
-      // 1. YouTube'dan SİLİNMİŞ videoları temizle (Sadece liste başarıyla çekilebildiyse)
-      if (anyPlaylistSucceeded &&
-          (currentOnlineVideoIds.isNotEmpty || currentOnlineTitles.isNotEmpty)) {
-        // Kuyrukta olup online listede olmayanları temizle (aktif inen hariç)
-        final tasksToRemove = _tasks.where((t) {
-          final vid = VideoItem.extractVideoId(t.url);
-          final titleLower = t.title.trim().toLowerCase();
-          final matchesId =
-              vid != null && currentOnlineVideoIds.contains(vid);
-          final matchesTitle = titleLower.isNotEmpty &&
-              currentOnlineTitles.contains(titleLower);
-          return !matchesId &&
-              !matchesTitle &&
-              t.status != DownloadStatus.downloading;
-        }).toList();
-
-        for (final t in tasksToRemove) {
-          _tasks.removeWhere((item) => item.id == t.id);
-          deletedCount++;
-        }
-
-        // İndirilenlerden silinenleri Geri Dönüşüm Kutusuna taşı
-        for (final v in downloadedVideos) {
-          final vid = v.youtubeId;
-          final titleLower = v.title.trim().toLowerCase();
-          final matchesId =
-              vid != null && currentOnlineVideoIds.contains(vid);
-          final matchesTitle = titleLower.isNotEmpty &&
-              currentOnlineTitles.contains(titleLower);
-
-          if (!matchesId && !matchesTitle) {
-            final deleted = await libraryProvider.deleteVideo(v);
-            if (deleted) {
-              deletedCount++;
-            }
-          }
-        }
-      }
+      // Not: İndirilen videolar asla otomatik silinmez (kullanıcı güvenliği)
 
       // 2. YENİ EKLENEN videoları kuyruğun EN BAŞINA (Öncelikli) ekle
       final maxDurationSec = settings.maxVideoDurationHours * 3600;

@@ -8,11 +8,17 @@ import 'amoled_card.dart';
 class VideoTile extends StatelessWidget {
   final VideoItem video;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
+  final bool isSelectionMode;
+  final bool isSelected;
 
   const VideoTile({
     super.key,
     required this.video,
     required this.onTap,
+    this.onLongPress,
+    this.isSelectionMode = false,
+    this.isSelected = false,
   });
 
   @override
@@ -24,11 +30,16 @@ class VideoTile extends StatelessWidget {
 
     return AmoledCard(
       onTap: onTap,
+      onLongPress: onLongPress,
       padding: EdgeInsets.zero,
+      borderColor: isSelected
+          ? const Color(0xFF00E676)
+          : (isSelectionMode ? const Color(0xFF333333) : null),
+      backgroundColor: isSelected ? const Color(0xFF0D2314) : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Büyük 16:9 Thumbnail ve Süre Rozeti
+          // 1. Büyük 16:9 Thumbnail ve Süre / Seçim Rozeti
           AspectRatio(
             aspectRatio: 16 / 9,
             child: Stack(
@@ -36,7 +47,8 @@ class VideoTile extends StatelessWidget {
               children: [
                 if (hasLocalThumb)
                   ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                    borderRadius:
+                        const BorderRadius.vertical(top: Radius.circular(14)),
                     child: Image.file(
                       File(video.thumbnailPath!),
                       fit: BoxFit.cover,
@@ -56,7 +68,8 @@ class VideoTile extends StatelessWidget {
                   Container(
                     decoration: const BoxDecoration(
                       color: Color(0xFF141414),
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                      borderRadius:
+                          BorderRadius.vertical(top: Radius.circular(14)),
                     ),
                     child: const Center(
                       child: Icon(
@@ -67,22 +80,53 @@ class VideoTile extends StatelessWidget {
                     ),
                   ),
 
-                // Play Buton Rozeti (Orta)
-                Center(
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.55),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white24, width: 1),
-                    ),
-                    child: const Icon(
-                      Icons.play_arrow_rounded,
-                      color: AmoledTheme.pureWhite,
-                      size: 28,
+                // Play Buton Rozeti (Seçim modunda değilse)
+                if (!isSelectionMode)
+                  Center(
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.55),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white24, width: 1),
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow_rounded,
+                        color: AmoledTheme.pureWhite,
+                        size: 28,
+                      ),
                     ),
                   ),
-                ),
+
+                // Seçim Modu Onay Kutusu (Sağ Üst)
+                if (isSelectionMode)
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFF00E676)
+                            : Colors.black.withValues(alpha: 0.7),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF00E676)
+                              : Colors.white70,
+                          width: 2,
+                        ),
+                      ),
+                      child: Icon(
+                        isSelected
+                            ? Icons.check_rounded
+                            : Icons.circle_outlined,
+                        size: 20,
+                        color: isSelected ? Colors.black : Colors.transparent,
+                      ),
+                    ),
+                  ),
 
                 // Süre Rozeti (Sağ Alt)
                 if (video.formattedDuration != '--:--')
@@ -90,7 +134,8 @@ class VideoTile extends StatelessWidget {
                     bottom: 8,
                     right: 8,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.85),
                         borderRadius: BorderRadius.circular(6),
@@ -114,7 +159,8 @@ class VideoTile extends StatelessWidget {
                     bottom: 8,
                     left: 8,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
                         color: const Color(0xFF003311),
                         borderRadius: BorderRadius.circular(4),
@@ -123,7 +169,8 @@ class VideoTile extends StatelessWidget {
                       child: const Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.subtitles_rounded, color: Color(0xFF00E676), size: 12),
+                          Icon(Icons.subtitles_rounded,
+                              color: Color(0xFF00E676), size: 12),
                           SizedBox(width: 4),
                           Text(
                             'TR ALTYAZI',
@@ -187,11 +234,16 @@ class VideoTile extends StatelessWidget {
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF162518),
+                        color: isSelected
+                            ? const Color(0xFF004D25)
+                            : const Color(0xFF162518),
                         borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.3)),
+                        border: Border.all(
+                            color:
+                                const Color(0xFF00E676).withValues(alpha: 0.3)),
                       ),
                       child: Text(
                         video.formattedSize,

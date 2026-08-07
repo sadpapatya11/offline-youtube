@@ -43,6 +43,36 @@ class LibraryProvider extends ChangeNotifier {
     return success;
   }
 
+  /// ID ile videoyu Geri Dönüşüm Kutusuna taşır
+  Future<bool> deleteVideoById(String videoId) async {
+    final match = _videos.where((v) => v.id == videoId).firstOrNull;
+    if (match != null) {
+      return await deleteVideo(match);
+    }
+    return false;
+  }
+
+  /// Birden fazla videoyu topluca Geri Dönüşüm Kutusuna taşır
+  Future<int> bulkMoveToTrash(List<String> videoIds) async {
+    int deletedCount = 0;
+    for (final id in videoIds) {
+      final match = _videos.where((v) => v.id == id).firstOrNull;
+      if (match != null) {
+        final ok = await StorageManager.instance.moveToTrash(match);
+        if (ok) {
+          _videos.removeWhere((v) => v.id == id);
+          deletedCount++;
+        }
+      }
+    }
+    if (deletedCount > 0) {
+      _trashedVideos = await StorageManager.instance.loadTrashIndex();
+      _totalUsedBytes = await StorageManager.instance.getUsedStorageBytes();
+      notifyListeners();
+    }
+    return deletedCount;
+  }
+
   /// Videoyu Geri Dönüşüm Kutusundan geri yükler
   Future<bool> restoreVideo(TrashedVideoItem trashed) async {
     final success = await StorageManager.instance.restoreFromTrash(trashed);

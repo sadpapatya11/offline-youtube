@@ -171,6 +171,7 @@ class StorageManager {
 
             int? durationSeconds;
             String? uploader;
+            String? sourceUrl;
             final metaFile = File('$baseWithoutExt.meta.json');
             if (await metaFile.exists()) {
               try {
@@ -178,6 +179,7 @@ class StorageManager {
                 final metaJson = jsonDecode(content) as Map<String, dynamic>;
                 durationSeconds = metaJson['durationSeconds'] as int?;
                 uploader = metaJson['uploader'] as String?;
+                sourceUrl = metaJson['url'] as String?;
               } catch (_) {}
             }
 
@@ -191,6 +193,7 @@ class StorageManager {
               downloadedAt: stat.modified,
               thumbnailPath: thumbPath,
               subtitlePath: subtitlePath,
+              sourceUrl: sourceUrl,
             ));
           }
         }

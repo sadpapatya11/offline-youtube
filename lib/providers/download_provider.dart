@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
 import '../models/download_task.dart';
+import '../models/video_item.dart';
+import '../providers/library_provider.dart';
 import '../services/native_bridge.dart';
 import '../services/network_manager.dart';
 import '../services/storage_manager.dart';
@@ -20,6 +22,7 @@ class DownloadProvider extends ChangeNotifier {
   bool _isWifiWaiting = false;
   bool _isLoaded = false;
   bool _isAutoUpdatingEngine = false;
+  bool _isSyncingPlaylists = false;
   AppSettings? _lastSettings;
   VoidCallback? onLibraryNeedsRefresh;
 
@@ -32,6 +35,7 @@ class DownloadProvider extends ChangeNotifier {
   bool get isQueuePaused => _isQueuePaused;
   bool get isWifiWaiting => _isWifiWaiting;
   bool get isLoaded => _isLoaded;
+  bool get isSyncingPlaylists => _isSyncingPlaylists;
 
   int get queuedCount =>
       _tasks.where((t) => t.status == DownloadStatus.queued).length;
@@ -892,6 +896,133 @@ class DownloadProvider extends ChangeNotifier {
       _saveTasksToStorage();
       notifyListeners();
       return loadingTask.errorMessage;
+    }
+  }
+
+  /// Kayıtlı oynatma listelerini YouTube ile senkronize eder:
+  /// - YouTube'dan silinmiş videoları kuyruktan ve indirilenlerden temizler (çöpe taşır).
+  /// - Yeni eklenen videoları kuyruğun en tepesine ekler.
+  /// - İndirme kurallarını (Wi-Fi, kota, saat) harfiyen uygular.
+  Future<void> syncSavedPlaylists({
+    required AppSettings settings,
+    required LibraryProvider libraryProvider,
+  }) async {
+    if (_isSyncingPlaylists) return;
+    if (settings.savedPlaylists.isEmpty) return;
+
+    _isSyncingPlaylists = true;
+    notifyListeners();
+
+    try {
+      final downloadedVideos =
+          await StorageManager.instance.scanDownloadedVideos();
+      final currentQueueTasks = List<DownloadTask>.from(_tasks);
+
+      final Set<String> currentOnlineVideoIds = {};
+      final Set<String> currentOnlineUrls = {};
+      final List<Map<String, dynamic>> allNewEntries = [];
+
+      for (final playlistUrl in settings.savedPlaylists) {
+        if (playlistUrl.trim().isEmpty) continue;
+        try {
+          final entries =
+              await NativeBridge.instance.fetchPlaylistEntries(playlistUrl);
+          for (final entry in entries) {
+            final u = entry['url'] as String? ?? '';
+            final vid = VideoItem.extractVideoId(u);
+            if (vid != null) currentOnlineVideoIds.add(vid);
+            if (u.isNotEmpty) currentOnlineUrls.add(u);
+
+            final isAlreadyDownloaded = downloadedVideos.any((v) =>
+                (v.youtubeId != null && v.youtubeId == vid) ||
+                (v.sourceUrl != null && v.sourceUrl == u) ||
+                v.title.trim().toLowerCase() ==
+                    (entry['title'] as String? ?? '').trim().toLowerCase());
+
+            final isAlreadyInQueue = currentQueueTasks.any((t) =>
+                (VideoItem.extractVideoId(t.url) != null &&
+                    VideoItem.extractVideoId(t.url) == vid) ||
+                t.url == u);
+
+            if (!isAlreadyDownloaded && !isAlreadyInQueue) {
+              allNewEntries.add(entry);
+            }
+          }
+        } catch (_) {
+          // Bir listede hata olursa diğerlerine devam et
+        }
+      }
+
+      // 1. YouTube'dan SİLİNMİŞ videoları temizle
+      if (currentOnlineVideoIds.isNotEmpty) {
+        // Kuyrukta olup online listede olmayanları temizle (aktif inen hariç)
+        final tasksToRemove = _tasks.where((t) {
+          final vid = VideoItem.extractVideoId(t.url);
+          return vid != null &&
+              !currentOnlineVideoIds.contains(vid) &&
+              t.status != DownloadStatus.downloading;
+        }).toList();
+
+        for (final t in tasksToRemove) {
+          _tasks.removeWhere((item) => item.id == t.id);
+        }
+
+        // İndirilenlerden silinenleri Geri Dönüşüm Kutusuna taşı
+        for (final v in downloadedVideos) {
+          if (v.youtubeId != null &&
+              !currentOnlineVideoIds.contains(v.youtubeId)) {
+            await libraryProvider.deleteVideo(v);
+          }
+        }
+      }
+
+      // 2. YENİ EKLENEN videoları kuyruğun EN BAŞINA (Öncelikli) ekle
+      final maxDurationSec = settings.maxVideoDurationHours * 3600;
+      final refreshedDownloads =
+          await StorageManager.instance.scanDownloadedVideos();
+      int runningTotalSec = refreshedDownloads.fold<int>(
+          0, (sum, v) => sum + (v.durationSeconds ?? 0));
+
+      for (int i = allNewEntries.length - 1; i >= 0; i--) {
+        final entry = allNewEntries[i];
+        final videoUrl = entry['url'] as String? ?? '';
+        final title = entry['title'] as String? ?? 'Video';
+        final duration = (entry['duration'] as num?)?.toInt() ?? 0;
+        final thumbnail = entry['thumbnail'] as String?;
+        final uploader = entry['uploader'] as String?;
+
+        if (videoUrl.isEmpty) continue;
+
+        if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) {
+          continue;
+        }
+
+        runningTotalSec += duration;
+        final taskId = '${DateTime.now().millisecondsSinceEpoch}_sync_$i';
+        final newTask = DownloadTask(
+          id: taskId,
+          url: videoUrl,
+          title: title,
+          thumbnail: thumbnail,
+          durationSeconds: duration,
+          uploader: uploader,
+          status: DownloadStatus.queued,
+        );
+
+        _tasks.insert(0, newTask);
+      }
+
+      await _saveTasksToStorage();
+      notifyListeners();
+
+      if (!_isQueuePaused) {
+        await processNextQueue(settings: settings);
+      }
+    } catch (_) {
+      // Hata sessizce yönetilir
+    } finally {
+      _isSyncingPlaylists = false;
+      notifyListeners();
     }
   }
 

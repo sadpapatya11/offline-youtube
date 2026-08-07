@@ -10,6 +10,7 @@ class VideoItem {
   final DateTime downloadedAt;
   final String? thumbnailPath;
   final String? subtitlePath;
+  final String? sourceUrl;
 
   VideoItem({
     required this.id,
@@ -21,9 +22,20 @@ class VideoItem {
     required this.downloadedAt,
     this.thumbnailPath,
     this.subtitlePath,
+    this.sourceUrl,
   });
 
   bool get exists => File(filePath).existsSync();
+
+  static String? extractVideoId(String? url) {
+    if (url == null || url.isEmpty) return null;
+    final regExp =
+        RegExp(r'(?:v=|\/|youtu\.be\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})');
+    final match = regExp.firstMatch(url);
+    return match?.group(1);
+  }
+
+  String? get youtubeId => extractVideoId(sourceUrl);
 
   String get formattedSize {
     if (fileSizeBytes <= 0) return '0 B';
@@ -58,6 +70,7 @@ class VideoItem {
         'downloadedAt': downloadedAt.toIso8601String(),
         'thumbnailPath': thumbnailPath,
         'subtitlePath': subtitlePath,
+        'sourceUrl': sourceUrl,
       };
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
@@ -70,5 +83,6 @@ class VideoItem {
         downloadedAt: DateTime.parse(json['downloadedAt'] as String),
         thumbnailPath: json['thumbnailPath'] as String?,
         subtitlePath: json['subtitlePath'] as String?,
+        sourceUrl: json['sourceUrl'] as String?,
       );
 }

@@ -20,6 +20,9 @@ class DownloadsScreenState extends State<DownloadsScreen> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _isSelectionMode = false;
+  final Set<String> _selectedVideoIds = {};
+  final Map<int, GlobalKey> _itemKeys = {};
 
   @override
   void dispose() {
@@ -38,6 +41,100 @@ class DownloadsScreenState extends State<DownloadsScreen> {
     }
   }
 
+  void _enterSelectionMode([String? initialSelectedId]) {
+    setState(() {
+      _isSelectionMode = true;
+      if (initialSelectedId != null) {
+        _selectedVideoIds.add(initialSelectedId);
+      }
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedVideoIds.clear();
+    });
+  }
+
+  void _toggleSelection(String videoId) {
+    setState(() {
+      if (_selectedVideoIds.contains(videoId)) {
+        _selectedVideoIds.remove(videoId);
+      } else {
+        _selectedVideoIds.add(videoId);
+      }
+    });
+  }
+
+  void _toggleSelectAll(List<VideoItem> videos) {
+    setState(() {
+      if (_selectedVideoIds.length == videos.length) {
+        _selectedVideoIds.clear();
+      } else {
+        _selectedVideoIds.addAll(videos.map((v) => v.id));
+      }
+    });
+  }
+
+  void _handleDragSelect(Offset globalPosition, List<VideoItem> videos) {
+    if (!_isSelectionMode) return;
+    for (int i = 0; i < videos.length; i++) {
+      final key = _itemKeys[i];
+      if (key?.currentContext != null) {
+        final box = key!.currentContext!.findRenderObject() as RenderBox?;
+        if (box != null && box.hasSize) {
+          final pos = box.localToGlobal(Offset.zero);
+          final rect = Rect.fromLTWH(
+              pos.dx, pos.dy, box.size.width, box.size.height);
+          if (rect.contains(globalPosition)) {
+            final id = videos[i].id;
+            if (!_selectedVideoIds.contains(id)) {
+              setState(() {
+                _selectedVideoIds.add(id);
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  Future<void> _deleteSelectedVideos(
+      BuildContext context, LibraryProvider library) async {
+    if (_selectedVideoIds.isEmpty) return;
+
+    final count = _selectedVideoIds.length;
+    final idsToDelete = _selectedVideoIds.toList();
+    _exitSelectionMode();
+
+    final deletedCount = await library.bulkMoveToTrash(idsToDelete);
+    if (context.mounted && deletedCount > 0) {
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              '🗑️ $deletedCount video Geri Dönüşüm Kutusu\'na taşındı (24 saat sonra silinir).'),
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Geri Al',
+            textColor: const Color(0xFF00E676),
+            onPressed: () {
+              for (final id in idsToDelete) {
+                final match = library.trashedVideos
+                    .where((t) => t.video.id == id)
+                    .firstOrNull;
+                if (match != null) {
+                  library.restoreVideo(match);
+                }
+              }
+            },
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final library = context.watch<LibraryProvider>();
@@ -50,207 +147,351 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                 v.title.toLowerCase().contains(_searchQuery.toLowerCase()))
             .toList();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('İNDİRİLENLER'),
-        actions: [
-          IconButton(
-            icon: Badge(
-              isLabelVisible: library.trashCount > 0,
-              label: Text(
-                '${library.trashCount}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              backgroundColor: const Color(0xFFFFCC00),
-              textColor: Colors.black,
-              child: const Icon(Icons.restore_from_trash_rounded,
-                  color: AmoledTheme.pureWhite),
-            ),
-            tooltip: 'Geri Dönüşüm Kutusu',
-            onPressed: () => _showTrashModal(context, library),
-          ),
-          IconButton(
-            icon: const Icon(Icons.refresh_rounded, color: AmoledTheme.pureWhite),
-            onPressed: () => library.refresh(),
-            tooltip: 'Yenile',
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Arama & Özet Başlığı
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _searchController,
-                  style: const TextStyle(color: AmoledTheme.pureWhite),
-                  decoration: InputDecoration(
-                    hintText: 'İndirilen videolarda ara...',
-                    prefixIcon: const Icon(Icons.search_rounded,
-                        color: AmoledTheme.subText),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear,
-                                color: AmoledTheme.subText),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                            },
-                          )
+    final bool isAllSelected = filteredVideos.isNotEmpty &&
+        _selectedVideoIds.length == filteredVideos.length;
+
+    return PopScope(
+      canPop: !_isSelectionMode,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_isSelectionMode) {
+          _exitSelectionMode();
+        }
+      },
+      child: Scaffold(
+        appBar: _isSelectionMode
+            ? AppBar(
+                leading: IconButton(
+                  icon: const Icon(Icons.close_rounded,
+                      color: AmoledTheme.pureWhite),
+                  tooltip: 'Vazgeç',
+                  onPressed: _exitSelectionMode,
+                ),
+                title: Text(
+                  '${_selectedVideoIds.length} Seçildi',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                actions: [
+                  IconButton(
+                    icon: Icon(
+                      isAllSelected
+                          ? Icons.deselect_rounded
+                          : Icons.select_all_rounded,
+                      color: AmoledTheme.pureWhite,
+                    ),
+                    tooltip:
+                        isAllSelected ? 'Seçimi Kaldır' : 'Tümünü Seç',
+                    onPressed: () => _toggleSelectAll(filteredVideos),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_sweep_rounded,
+                        color: AmoledTheme.brandRed),
+                    tooltip: 'Seçilenleri Sil',
+                    onPressed: _selectedVideoIds.isNotEmpty
+                        ? () => _deleteSelectedVideos(context, library)
                         : null,
                   ),
-                  onChanged: (val) {
-                    setState(() {
-                      _searchQuery = val.trim();
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Toplam ${allVideos.length} video',
-                      style: const TextStyle(
-                        color: AmoledTheme.subText,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
+                ],
+              )
+            : AppBar(
+                title: const Text('İNDİRİLENLER'),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.checklist_rounded,
+                        color: AmoledTheme.pureWhite),
+                    tooltip: 'Çoklu Seç',
+                    onPressed: filteredVideos.isNotEmpty
+                        ? () => _enterSelectionMode()
+                        : null,
+                  ),
+                  IconButton(
+                    icon: Badge(
+                      isLabelVisible: library.trashCount > 0,
+                      label: Text(
+                        '${library.trashCount}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      backgroundColor: const Color(0xFFFFCC00),
+                      textColor: Colors.black,
+                      child: const Icon(Icons.restore_from_trash_rounded,
+                          color: AmoledTheme.pureWhite),
+                    ),
+                    tooltip: 'Geri Dönüşüm Kutusu',
+                    onPressed: () => _showTrashModal(context, library),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.refresh_rounded,
+                        color: AmoledTheme.pureWhite),
+                    onPressed: () => library.refresh(),
+                    tooltip: 'Yenile',
+                  ),
+                ],
+              ),
+        bottomNavigationBar: _isSelectionMode && _selectedVideoIds.isNotEmpty
+            ? SafeArea(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: const BoxDecoration(
+                    color: AmoledTheme.cardDark,
+                    border: Border(
+                      top: BorderSide(
+                          color: AmoledTheme.borderDark, width: 1),
+                    ),
+                  ),
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AmoledTheme.brandRed,
+                      foregroundColor: AmoledTheme.pureWhite,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    Text(
-                      'Kullanılan: ${library.formattedTotalUsed}',
+                    icon: const Icon(Icons.delete_sweep_rounded),
+                    label: Text(
+                      'Seçilenleri Sil (${_selectedVideoIds.length})',
                       style: const TextStyle(
-                        color: AmoledTheme.pureWhite,
-                        fontSize: 12,
+                        fontSize: 15,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                  ],
+                    onPressed: () =>
+                        _deleteSelectedVideos(context, library),
+                  ),
                 ),
-              ],
-            ),
-          ),
-          const Divider(color: AmoledTheme.borderDark, height: 1),
-
-          // Video Listesi
-          Expanded(
-            child: library.isLoading
-                ? const Center(
-                    child: CircularProgressIndicator(
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(AmoledTheme.pureWhite),
-                    ),
-                  )
-                : filteredVideos.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.video_library_outlined,
-                              size: 64,
-                              color: Color(0xFF444444),
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              _searchQuery.isEmpty
-                                  ? 'Henüz indirilmiş video yok'
-                                  : 'Aramanızla eşleşen video bulunamadı',
-                              style: const TextStyle(
-                                color: AmoledTheme.subText,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      )
-                    : RefreshIndicator(
-                        color: AmoledTheme.pureWhite,
-                        backgroundColor: AmoledTheme.cardDark,
-                        onRefresh: () => library.refresh(),
-                        child: ListView.separated(
-                          controller: _scrollController,
-                          padding: const EdgeInsets.all(16),
-                          itemCount: filteredVideos.length,
-                          separatorBuilder: (context, index) =>
-                              const SizedBox(height: 12),
-                          itemBuilder: (context, index) {
-                            final video = filteredVideos[index];
-                            return Dismissible(
-                              key: Key('download_video_${video.id}'),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 20),
-                                decoration: BoxDecoration(
-                                  color: AmoledTheme.brandRed,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      'Geri Dönüşüme At',
-                                      style: TextStyle(
-                                        color: AmoledTheme.pureWhite,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Icon(
-                                      Icons.delete_sweep_rounded,
-                                      color: AmoledTheme.pureWhite,
-                                      size: 26,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              onDismissed: (direction) {
-                                final title = video.title;
-                                context.read<LibraryProvider>().deleteVideo(video);
-                                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                        '🗑️ "$title" Geri Dönüşüm Kutusu\'na taşındı (24 saat sonra silinir).'),
-                                    duration: const Duration(seconds: 4),
-                                    action: SnackBarAction(
-                                      label: 'Geri Al',
-                                      textColor: const Color(0xFF00E676),
-                                      onPressed: () {
-                                        final trashed = library.trashedVideos.firstWhere(
-                                          (t) => t.video.id == video.id,
-                                          orElse: () => TrashedVideoItem(
-                                              video: video, deletedAt: DateTime.now()),
-                                        );
-                                        library.restoreVideo(trashed);
-                                      },
-                                    ),
-                                  ),
-                                );
+              )
+            : null,
+        body: Column(
+          children: [
+            // Arama & Özet Başlığı
+            Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _searchController,
+                    style: const TextStyle(color: AmoledTheme.pureWhite),
+                    decoration: InputDecoration(
+                      hintText: 'İndirilen videolarda ara...',
+                      prefixIcon: const Icon(Icons.search_rounded,
+                          color: AmoledTheme.subText),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear,
+                                  color: AmoledTheme.subText),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {
+                                  _searchQuery = '';
+                                });
                               },
-                              child: VideoTile(
-                                video: video,
-                                onTap: () {
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (_) => PlayerScreen(video: video),
-                                    ),
-                                  );
-                                },
-                              ),
-                            );
-                          },
+                            )
+                          : null,
+                    ),
+                    onChanged: (val) {
+                      setState(() {
+                        _searchQuery = val.trim();
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Toplam ${allVideos.length} video',
+                        style: const TextStyle(
+                          color: AmoledTheme.subText,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-          ),
-        ],
+                      Text(
+                        'Kullanılan: ${library.formattedTotalUsed}',
+                        style: const TextStyle(
+                          color: AmoledTheme.pureWhite,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: AmoledTheme.borderDark, height: 1),
+
+            // Video Listesi
+            Expanded(
+              child: library.isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                            AmoledTheme.pureWhite),
+                      ),
+                    )
+                  : filteredVideos.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                Icons.video_library_outlined,
+                                size: 64,
+                                color: Color(0xFF444444),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                _searchQuery.isEmpty
+                                    ? 'Henüz indirilmiş video yok'
+                                    : 'Aramanızla eşleşen video bulunamadı',
+                                style: const TextStyle(
+                                  color: AmoledTheme.subText,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : GestureDetector(
+                          onPanStart: (details) {
+                            if (_isSelectionMode) {
+                              _handleDragSelect(
+                                  details.globalPosition, filteredVideos);
+                            }
+                          },
+                          onPanUpdate: (details) {
+                            if (_isSelectionMode) {
+                              _handleDragSelect(
+                                  details.globalPosition, filteredVideos);
+                            }
+                          },
+                          child: RefreshIndicator(
+                            color: AmoledTheme.pureWhite,
+                            backgroundColor: AmoledTheme.cardDark,
+                            onRefresh: () => library.refresh(),
+                            child: ListView.separated(
+                              controller: _scrollController,
+                              padding: const EdgeInsets.all(16),
+                              itemCount: filteredVideos.length,
+                              separatorBuilder: (context, index) =>
+                                  const SizedBox(height: 12),
+                              itemBuilder: (context, index) {
+                                final video = filteredVideos[index];
+                                final isSelected =
+                                    _selectedVideoIds.contains(video.id);
+
+                                if (!_itemKeys.containsKey(index)) {
+                                  _itemKeys[index] = GlobalKey();
+                                }
+
+                                final tileWidget = Container(
+                                  key: _itemKeys[index],
+                                  child: VideoTile(
+                                    video: video,
+                                    isSelectionMode: _isSelectionMode,
+                                    isSelected: isSelected,
+                                    onLongPress: () {
+                                      if (!_isSelectionMode) {
+                                        _enterSelectionMode(video.id);
+                                      } else {
+                                        _toggleSelection(video.id);
+                                      }
+                                    },
+                                    onTap: () {
+                                      if (_isSelectionMode) {
+                                        _toggleSelection(video.id);
+                                      } else {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) =>
+                                                PlayerScreen(video: video),
+                                          ),
+                                        );
+                                      }
+                                    },
+                                  ),
+                                );
+
+                                if (_isSelectionMode) {
+                                  return tileWidget;
+                                }
+
+                                return Dismissible(
+                                  key: Key('download_video_${video.id}'),
+                                  direction: DismissDirection.endToStart,
+                                  background: Container(
+                                    alignment: Alignment.centerRight,
+                                    padding: const EdgeInsets.only(right: 20),
+                                    decoration: BoxDecoration(
+                                      color: AmoledTheme.brandRed,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.end,
+                                      children: [
+                                        Text(
+                                          'Geri Dönüşüme At',
+                                          style: TextStyle(
+                                            color: AmoledTheme.pureWhite,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        SizedBox(width: 8),
+                                        Icon(
+                                          Icons.delete_sweep_rounded,
+                                          color: AmoledTheme.pureWhite,
+                                          size: 26,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  onDismissed: (direction) {
+                                    final title = video.title;
+                                    context
+                                        .read<LibraryProvider>()
+                                        .deleteVideo(video);
+                                    ScaffoldMessenger.of(context)
+                                        .hideCurrentSnackBar();
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                            '🗑️ "$title" Geri Dönüşüm Kutusu\'na taşındı (24 saat sonra silinir).'),
+                                        duration:
+                                            const Duration(seconds: 4),
+                                        action: SnackBarAction(
+                                          label: 'Geri Al',
+                                          textColor:
+                                              const Color(0xFF00E676),
+                                          onPressed: () {
+                                            final trashed = library
+                                                .trashedVideos
+                                                .firstWhere(
+                                              (t) => t.video.id == video.id,
+                                              orElse: () => TrashedVideoItem(
+                                                  video: video,
+                                                  deletedAt: DateTime.now()),
+                                            );
+                                            library.restoreVideo(trashed);
+                                          },
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: tileWidget,
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+            ),
+          ],
+        ),
       ),
     );
   }

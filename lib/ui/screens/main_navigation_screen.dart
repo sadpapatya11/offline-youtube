@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
+import '../../providers/settings_provider.dart';
 import '../theme/amoled_theme.dart';
 import 'downloads_screen.dart';
 import 'home_screen.dart';
@@ -21,6 +22,29 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       GlobalKey<DownloadsScreenState>();
   final GlobalKey<QueueScreenState> _queueKey =
       GlobalKey<QueueScreenState>();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _performInitialSync();
+    });
+  }
+
+  void _performInitialSync() {
+    if (!mounted) return;
+    final settingsProvider = context.read<SettingsProvider>();
+    final downloadProvider = context.read<DownloadProvider>();
+    final libraryProvider = context.read<LibraryProvider>();
+
+    if (!settingsProvider.isLoading &&
+        settingsProvider.settings.savedPlaylists.isNotEmpty) {
+      downloadProvider.syncSavedPlaylists(
+        settings: settingsProvider.settings,
+        libraryProvider: libraryProvider,
+      );
+    }
+  }
 
   void _navigateToTab(int index) {
     if (_currentIndex == index) {

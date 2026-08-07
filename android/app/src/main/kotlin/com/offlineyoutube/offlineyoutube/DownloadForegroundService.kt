@@ -7,14 +7,18 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
@@ -32,6 +36,7 @@ class DownloadForegroundService : Service() {
         const val ACTION_PAUSE = "com.offlineyoutube.PAUSE_DOWNLOAD"
         const val ACTION_RESUME = "com.offlineyoutube.RESUME_DOWNLOAD"
         const val ACTION_CANCEL = "com.offlineyoutube.CANCEL_DOWNLOAD"
+        const val ACTION_STOP_SERVICE = "com.offlineyoutube.STOP_SERVICE"
 
         const val EXTRA_TASK_ID = "extra_task_id"
         const val EXTRA_URL = "extra_url"
@@ -49,19 +54,26 @@ class DownloadForegroundService : Service() {
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
     private val activeDownloadJobs = ConcurrentHashMap<String, Job>()
     private val taskTitles = ConcurrentHashMap<String, String>()
     private val taskUrls = ConcurrentHashMap<String, String>()
     private val taskOutputs = ConcurrentHashMap<String, String>()
+    private var idleTimeoutJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        acquireWakeLock()
+        acquireWakeLocks()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
+        if (action == ACTION_STOP_SERVICE) {
+            stopAllAndSelf()
+            return START_NOT_STICKY
+        }
+
         val taskId = intent?.getStringExtra(EXTRA_TASK_ID) ?: return START_NOT_STICKY
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "Video"
         val url = intent.getStringExtra(EXTRA_URL) ?: ""
@@ -69,16 +81,18 @@ class DownloadForegroundService : Service() {
 
         when (action) {
             ACTION_START, ACTION_RESUME -> {
+                // Cancel pending idle shutdown timer
+                idleTimeoutJob?.cancel()
+                idleTimeoutJob = null
+
                 taskTitles[taskId] = title
                 taskUrls[taskId] = url
                 taskOutputs[taskId] = outputPath
                 
-                // Start foreground service with persistent summary
-                startForeground(
-                    SERVICE_NOTIFICATION_ID,
+                startInForeground(
                     buildNotification(
                         title = "Offline YouTube",
-                        content = "İndirmeler yürütülüyor...",
+                        content = "İndirme başlatılıyor: $title",
                         progress = 0,
                         indeterminate = true
                     )
@@ -94,6 +108,28 @@ class DownloadForegroundService : Service() {
         }
 
         return START_STICKY
+    }
+
+    private fun startInForeground(notification: Notification) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this,
+                    SERVICE_NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                )
+            } else {
+                startForeground(SERVICE_NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "startForeground error: ${e.message}", e)
+            try {
+                startForeground(SERVICE_NOTIFICATION_ID, notification)
+            } catch (ex: Exception) {
+                Log.e(TAG, "Fallback startForeground error: ${ex.message}", ex)
+            }
+        }
     }
 
     private fun startDownloadTask(taskId: String, url: String, outputPath: String, title: String) {
@@ -121,7 +157,7 @@ class DownloadForegroundService : Service() {
                         progress = progress.toInt(),
                         indeterminate = false
                     )
-                    manager.notify(notifId, notification)
+                    manager.notify(SERVICE_NOTIFICATION_ID, notification)
 
                     emitEvent(mapOf(
                         "taskId" to taskId,
@@ -135,23 +171,21 @@ class DownloadForegroundService : Service() {
                 },
                 onComplete = { result ->
                     activeDownloadJobs.remove(taskId)
-                    manager.cancel(notifId)
                     emitEvent(mapOf(
                         "taskId" to taskId,
                         "type" to "completed",
                         "result" to result
                     ))
-                    checkStopSelf()
+                    checkGracefulStop()
                 },
                 onError = { e ->
                     activeDownloadJobs.remove(taskId)
-                    manager.cancel(notifId)
                     emitEvent(mapOf(
                         "taskId" to taskId,
                         "type" to "error",
                         "error" to (e.message ?: "Bilinmeyen hata")
                     ))
-                    checkStopSelf()
+                    checkGracefulStop()
                 }
             )
         }
@@ -159,10 +193,6 @@ class DownloadForegroundService : Service() {
     }
 
     private fun pauseDownloadTask(taskId: String) {
-        val notifId = getNotificationId(taskId)
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.cancel(notifId)
-
         activeDownloadJobs[taskId]?.cancel()
         activeDownloadJobs.remove(taskId)
         YtDlpNativeManager.stopDownload(taskId)
@@ -170,14 +200,10 @@ class DownloadForegroundService : Service() {
             "taskId" to taskId,
             "type" to "paused"
         ))
-        checkStopSelf()
+        checkGracefulStop()
     }
 
     private fun cancelDownloadTask(taskId: String) {
-        val notifId = getNotificationId(taskId)
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        manager.cancel(notifId)
-
         activeDownloadJobs[taskId]?.cancel()
         activeDownloadJobs.remove(taskId)
         YtDlpNativeManager.stopDownload(taskId)
@@ -188,14 +214,46 @@ class DownloadForegroundService : Service() {
             "taskId" to taskId,
             "type" to "cancelled"
         ))
-        checkStopSelf()
+        checkGracefulStop()
     }
 
-    private fun checkStopSelf() {
+    private fun checkGracefulStop() {
         if (activeDownloadJobs.isEmpty()) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
+            // İndirme bittiğinde hemen kapanmak yerine 45 saniye bekle.
+            // Bu sürede Flutter kuyruktaki sıradaki videoyu startDownload ile başlatır.
+            // Arka planda veya ekran kilitliyken foreground service kesilmediği için
+            // Android 14 ForegroundServiceStartNotAllowedException hatası vermez ve zincir kopmaz!
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val waitingNotification = buildNotification(
+                title = "Offline YouTube",
+                content = "Sıradaki video hazırlanıyor...",
+                progress = 0,
+                indeterminate = true
+            )
+            manager.notify(SERVICE_NOTIFICATION_ID, waitingNotification)
+
+            idleTimeoutJob?.cancel()
+            idleTimeoutJob = serviceScope.launch {
+                delay(45000L) // 45 saniye bekle
+                if (activeDownloadJobs.isEmpty()) {
+                    Log.i(TAG, "No active downloads within grace period. Stopping foreground service.")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }
         }
+    }
+
+    private fun stopAllAndSelf() {
+        idleTimeoutJob?.cancel()
+        idleTimeoutJob = null
+        for ((taskId, job) in activeDownloadJobs) {
+            job.cancel()
+            YtDlpNativeManager.stopDownload(taskId)
+        }
+        activeDownloadJobs.clear()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun emitEvent(data: Map<String, Any?>) {
@@ -245,10 +303,25 @@ class DownloadForegroundService : Service() {
             .build()
     }
 
-    private fun acquireWakeLock() {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "offlineyoutube:download_wakelock").apply {
-            acquire(24 * 60 * 60 * 1000L) // 24 hours max
+    private fun acquireWakeLocks() {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "offlineyoutube:download_wakelock").apply {
+                setReferenceCounted(false)
+                acquire(24 * 60 * 60 * 1000L) // 24 hours max
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire wakeLock: ${e.message}")
+        }
+
+        try {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "offlineyoutube:download_wifilock").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to acquire wifiLock: ${e.message}")
         }
     }
 
@@ -263,6 +336,9 @@ class DownloadForegroundService : Service() {
         super.onDestroy()
         serviceJob.cancel()
         wakeLock?.let {
+            if (it.isHeld) it.release()
+        }
+        wifiLock?.let {
             if (it.isHeld) it.release()
         }
     }

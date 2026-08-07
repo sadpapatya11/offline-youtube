@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
 import '../models/download_task.dart';
@@ -11,7 +11,7 @@ import '../services/native_bridge.dart';
 import '../services/network_manager.dart';
 import '../services/storage_manager.dart';
 
-class DownloadProvider extends ChangeNotifier {
+class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const String _tasksPrefKey = 'offline_youtube_persisted_tasks_v3';
   static const String _queuePausedPrefKey = 'offline_youtube_queue_paused_v3';
 
@@ -28,6 +28,7 @@ class DownloadProvider extends ChangeNotifier {
 
   StreamSubscription? _eventSubscription;
   StreamSubscription? _connectivitySubscription;
+  Timer? _watchdogTimer;
 
   List<DownloadTask> get tasks => List.unmodifiable(_tasks);
   bool get isProcessingQueue => _isProcessingQueue;
@@ -72,9 +73,46 @@ class DownloadProvider extends ChangeNotifier {
   }
 
   DownloadProvider() {
+    WidgetsBinding.instance.addObserver(this);
     _loadPersistedState();
     _listenToNativeEvents();
     _listenToConnectivity();
+    _startWatchdogTimer();
+  }
+
+  void _startWatchdogTimer() {
+    _watchdogTimer?.cancel();
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      await _runWatchdogCheck();
+    });
+  }
+
+  Future<void> _runWatchdogCheck() async {
+    if (!_isLoaded || _isQueuePaused) return;
+
+    final hasPendingTasks = _tasks.any(
+      (t) =>
+          t.status == DownloadStatus.queued ||
+          (t.status == DownloadStatus.paused &&
+              (t.errorMessage?.contains('Mobil veri') == true ||
+                  t.errorMessage?.contains('Wi-Fi') == true ||
+                  t.errorMessage?.contains('Ağ bağlantısı') == true ||
+                  t.errorMessage?.contains('İnternet') == true)),
+    );
+
+    if (hasPendingTasks) {
+      await _evaluateConditionsAndAutoResume();
+      if (_activeTaskId == null && !isDownloadingActive) {
+        processNextQueue();
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _runWatchdogCheck();
+    }
   }
 
   // --- 1. PERSISTENCE (KALICI HAFIZA) & AÇILIŞTA OTOMATİK BAŞLATMA ---
@@ -442,7 +480,7 @@ class DownloadProvider extends ChangeNotifier {
   void _triggerNextQueue() {
     if (_isQueuePaused) return;
 
-    Future.delayed(const Duration(milliseconds: 800), () {
+    Future.delayed(const Duration(milliseconds: 500), () {
       if (!_isQueuePaused) {
         processNextQueue();
       }
@@ -471,6 +509,7 @@ class DownloadProvider extends ChangeNotifier {
       }
     }
 
+    await NativeBridge.instance.stopDownloadService();
     await _saveTasksToStorage();
     notifyListeners();
   }
@@ -563,6 +602,9 @@ class DownloadProvider extends ChangeNotifier {
 
       if (nextTaskIndex == -1) {
         _isProcessingQueue = false;
+        if (!isDownloadingActive) {
+          NativeBridge.instance.stopDownloadService();
+        }
         return;
       }
 
@@ -1198,6 +1240,8 @@ class DownloadProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _watchdogTimer?.cancel();
     _eventSubscription?.cancel();
     _connectivitySubscription?.cancel();
     super.dispose();

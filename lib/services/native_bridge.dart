@@ -130,6 +130,16 @@ class NativeBridge {
     }
   }
 
+  Future<bool> stopDownloadService() async {
+    try {
+      final result =
+          await _methodChannel.invokeMethod<bool>('stopDownloadService');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<bool> hasAllFilesPermission() async {
     try {
       final result =
@@ -150,6 +160,26 @@ class NativeBridge {
     }
   }
 
+  Future<bool> isIgnoringBatteryOptimizations() async {
+    try {
+      final result = await _methodChannel
+          .invokeMethod<bool>('isIgnoringBatteryOptimizations');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> requestIgnoreBatteryOptimizations() async {
+    try {
+      final result = await _methodChannel
+          .invokeMethod<bool>('requestIgnoreBatteryOptimizations');
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<int> getFolderSize(String path) async {
     try {
       final result =
@@ -160,3 +190,4 @@ class NativeBridge {
     }
   }
 }
+

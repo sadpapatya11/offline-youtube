@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -31,7 +32,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     });
   }
 
-  void _performInitialSync() {
+  void _performInitialSync() async {
+    if (!mounted) return;
+    try {
+      if (await Permission.notification.isDenied) {
+        await Permission.notification.request();
+      }
+    } catch (_) {}
+
     if (!mounted) return;
     final settingsProvider = context.read<SettingsProvider>();
     final downloadProvider = context.read<DownloadProvider>();

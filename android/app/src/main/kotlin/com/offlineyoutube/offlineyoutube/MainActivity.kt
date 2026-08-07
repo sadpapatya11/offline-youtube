@@ -1,9 +1,11 @@
 package com.offlineyoutube.offlineyoutube
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
@@ -158,6 +160,14 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
 
+                "stopDownloadService" -> {
+                    val intent = Intent(this, DownloadForegroundService::class.java).apply {
+                        action = DownloadForegroundService.ACTION_STOP_SERVICE
+                    }
+                    startService(intent)
+                    result.success(true)
+                }
+
                 "hasAllFilesPermission" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         result.success(Environment.isExternalStorageManager())
@@ -178,6 +188,37 @@ class MainActivity : FlutterActivity() {
                             val fallbackIntent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
                             startActivity(fallbackIntent)
                             result.success(true)
+                        }
+                    } else {
+                        result.success(true)
+                    }
+                }
+
+                "isIgnoringBatteryOptimizations" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                        result.success(powerManager.isIgnoringBatteryOptimizations(packageName))
+                    } else {
+                        result.success(true)
+                    }
+                }
+
+                "requestIgnoreBatteryOptimizations" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            try {
+                                val fallbackIntent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                startActivity(fallbackIntent)
+                                result.success(true)
+                            } catch (ex: Exception) {
+                                result.success(false)
+                            }
                         }
                     } else {
                         result.success(true)

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/app_settings.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../services/native_bridge.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
 
@@ -15,6 +16,28 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _isUpdatingYtDlp = false;
+  bool _isIgnoringBatteryOpt = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkBatteryOpt();
+  }
+
+  Future<void> _checkBatteryOpt() async {
+    final ignored = await NativeBridge.instance.isIgnoringBatteryOptimizations();
+    if (mounted) {
+      setState(() {
+        _isIgnoringBatteryOpt = ignored;
+      });
+    }
+  }
+
+  Future<void> _requestBatteryOpt() async {
+    await NativeBridge.instance.requestIgnoreBatteryOptimizations();
+    await Future.delayed(const Duration(seconds: 1));
+    await _checkBatteryOpt();
+  }
 
   Future<void> _updateEngine() async {
     setState(() {
@@ -400,6 +423,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       settingsProvider.togglePlaylistReverse(value);
                     },
                   ),
+                  const Divider(color: AmoledTheme.borderDark),
+
+                  // Arka Planda Kesintisiz İndirme (Pil Kısıtlaması)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _isIgnoringBatteryOpt
+                            ? const Color(0xFF003311)
+                            : AmoledTheme.brandRed.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: _isIgnoringBatteryOpt
+                              ? const Color(0xFF00AA44)
+                              : AmoledTheme.brandRed.withValues(alpha: 0.4),
+                        ),
+                      ),
+                      child: Icon(
+                        _isIgnoringBatteryOpt
+                            ? Icons.battery_charging_full_rounded
+                            : Icons.battery_alert_rounded,
+                        color: _isIgnoringBatteryOpt
+                            ? const Color(0xFF00FF66)
+                            : AmoledTheme.brandRed,
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Arka Planda Kesintisiz İndirme',
+                      style: TextStyle(
+                        color: AmoledTheme.pureWhite,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(
+                      _isIgnoringBatteryOpt
+                          ? 'Aktif: Ekran kapalıyken veya uygulamadan çıkıldığında indirme devam eder.'
+                          : 'Kısıtlı: Pil tasarrufu açık. Ekran kapandığında indirmelerin durmaması için dokunup muafiyet verin.',
+                      style: TextStyle(
+                        color: _isIgnoringBatteryOpt
+                            ? const Color(0xFF00FF66)
+                            : const Color(0xFFFFCC00),
+                        fontSize: 12,
+                      ),
+                    ),
+                    trailing: _isIgnoringBatteryOpt
+                        ? const Icon(Icons.check_circle_rounded,
+                            color: Color(0xFF00FF66), size: 20)
+                        : ElevatedButton(
+                            onPressed: _requestBatteryOpt,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AmoledTheme.brandRed,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                            ),
+                            child: const Text('İzin Ver',
+                                style: TextStyle(fontSize: 12)),
+                          ),
+                    onTap: _requestBatteryOpt,
+                  ),
                 ],
               ),
             ),
@@ -410,7 +495,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 children: [
                   Text(
-                    'Offline YouTube v1.4.3 (Build 10)',
+                    'Offline YouTube v1.4.4 (Build 11)',
                     style: TextStyle(
                       color: AmoledTheme.pureWhite.withValues(alpha: 0.6),
                       fontSize: 12,

@@ -94,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
           SnackBar(
             content: const Text('⚡ İndirme otomatik olarak başlatıldı!'),
             backgroundColor: const Color(0xFF003311),
-            duration: const Duration(seconds: 10),
+            duration: const Duration(seconds: 3),
             action: SnackBarAction(
               label: 'Kuyruğu Gör',
               textColor: AmoledTheme.pureWhite,

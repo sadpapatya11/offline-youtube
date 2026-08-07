@@ -6,6 +6,7 @@ import '../../models/video_item.dart';
 import '../../providers/library_provider.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
+import '../widgets/amoled_fast_scroller.dart';
 import '../widgets/video_tile.dart';
 import 'player_screen.dart';
 
@@ -355,137 +356,140 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                             ],
                           ),
                         )
-                      : GestureDetector(
-                          onPanStart: (details) {
-                            if (_isSelectionMode) {
-                              _handleDragSelect(
-                                  details.globalPosition, filteredVideos);
-                            }
-                          },
-                          onPanUpdate: (details) {
-                            if (_isSelectionMode) {
-                              _handleDragSelect(
-                                  details.globalPosition, filteredVideos);
-                            }
-                          },
-                          child: RefreshIndicator(
-                            color: AmoledTheme.pureWhite,
-                            backgroundColor: AmoledTheme.cardDark,
-                            onRefresh: () => library.refresh(),
-                            child: ListView.separated(
-                              controller: _scrollController,
-                              padding: const EdgeInsets.all(16),
-                              itemCount: filteredVideos.length,
-                              separatorBuilder: (context, index) =>
-                                  const SizedBox(height: 12),
-                              itemBuilder: (context, index) {
-                                final video = filteredVideos[index];
-                                final isSelected =
-                                    _selectedVideoIds.contains(video.id);
+                      : AmoledFastScroller(
+                          controller: _scrollController,
+                          child: GestureDetector(
+                            onPanStart: (details) {
+                              if (_isSelectionMode) {
+                                _handleDragSelect(
+                                    details.globalPosition, filteredVideos);
+                              }
+                            },
+                            onPanUpdate: (details) {
+                              if (_isSelectionMode) {
+                                _handleDragSelect(
+                                    details.globalPosition, filteredVideos);
+                              }
+                            },
+                            child: RefreshIndicator(
+                              color: AmoledTheme.pureWhite,
+                              backgroundColor: AmoledTheme.cardDark,
+                              onRefresh: () => library.refresh(),
+                              child: ListView.separated(
+                                controller: _scrollController,
+                                padding: const EdgeInsets.all(16),
+                                itemCount: filteredVideos.length,
+                                separatorBuilder: (context, index) =>
+                                    const SizedBox(height: 12),
+                                itemBuilder: (context, index) {
+                                  final video = filteredVideos[index];
+                                  final isSelected =
+                                      _selectedVideoIds.contains(video.id);
 
-                                if (!_itemKeys.containsKey(index)) {
-                                  _itemKeys[index] = GlobalKey();
-                                }
+                                  if (!_itemKeys.containsKey(index)) {
+                                    _itemKeys[index] = GlobalKey();
+                                  }
 
-                                final tileWidget = Container(
-                                  key: _itemKeys[index],
-                                  child: VideoTile(
-                                    video: video,
-                                    isSelectionMode: _isSelectionMode,
-                                    isSelected: isSelected,
-                                    onLongPress: () {
-                                      if (!_isSelectionMode) {
-                                        _enterSelectionMode(video.id);
-                                      } else {
-                                        _toggleSelection(video.id);
-                                      }
-                                    },
-                                    onTap: () {
-                                      if (_isSelectionMode) {
-                                        _toggleSelection(video.id);
-                                      } else {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) =>
-                                                PlayerScreen(video: video),
-                                          ),
-                                        );
-                                      }
-                                    },
-                                  ),
-                                );
-
-                                if (_isSelectionMode) {
-                                  return tileWidget;
-                                }
-
-                                return Dismissible(
-                                  key: Key('download_video_${video.id}'),
-                                  direction: DismissDirection.endToStart,
-                                  background: Container(
-                                    alignment: Alignment.centerRight,
-                                    padding: const EdgeInsets.only(right: 20),
-                                    decoration: BoxDecoration(
-                                      color: AmoledTheme.brandRed,
-                                      borderRadius: BorderRadius.circular(12),
+                                  final tileWidget = Container(
+                                    key: _itemKeys[index],
+                                    child: VideoTile(
+                                      video: video,
+                                      isSelectionMode: _isSelectionMode,
+                                      isSelected: isSelected,
+                                      onLongPress: () {
+                                        if (!_isSelectionMode) {
+                                          _enterSelectionMode(video.id);
+                                        } else {
+                                          _toggleSelection(video.id);
+                                        }
+                                      },
+                                      onTap: () {
+                                        if (_isSelectionMode) {
+                                          _toggleSelection(video.id);
+                                        } else {
+                                          Navigator.push(
+                                            context,
+                                            MaterialPageRoute(
+                                              builder: (_) =>
+                                                  PlayerScreen(video: video),
+                                            ),
+                                          );
+                                        }
+                                      },
                                     ),
-                                    child: const Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          'Geri Dönüşüme At',
-                                          style: TextStyle(
-                                            color: AmoledTheme.pureWhite,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 13,
-                                          ),
-                                        ),
-                                        SizedBox(width: 8),
-                                        Icon(
-                                          Icons.delete_sweep_rounded,
-                                          color: AmoledTheme.pureWhite,
-                                          size: 26,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  onDismissed: (direction) {
-                                    final title = video.title;
-                                    context
-                                        .read<LibraryProvider>()
-                                        .deleteVideo(video);
-                                    ScaffoldMessenger.of(context)
-                                        .hideCurrentSnackBar();
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                        content: Text(
-                                            '🗑️ "$title" Geri Dönüşüm Kutusu\'na taşındı (24 saat sonra silinir).'),
-                                        duration:
-                                            const Duration(seconds: 4),
-                                        action: SnackBarAction(
-                                          label: 'Geri Al',
-                                          textColor:
-                                              const Color(0xFF00E676),
-                                          onPressed: () {
-                                            final trashed = library
-                                                .trashedVideos
-                                                .firstWhere(
-                                              (t) => t.video.id == video.id,
-                                              orElse: () => TrashedVideoItem(
-                                                  video: video,
-                                                  deletedAt: DateTime.now()),
-                                            );
-                                            library.restoreVideo(trashed);
-                                          },
-                                        ),
+                                  );
+
+                                  if (_isSelectionMode) {
+                                    return tileWidget;
+                                  }
+
+                                  return Dismissible(
+                                    key: Key('download_video_${video.id}'),
+                                    direction: DismissDirection.endToStart,
+                                    background: Container(
+                                      alignment: Alignment.centerRight,
+                                      padding: const EdgeInsets.only(right: 20),
+                                      decoration: BoxDecoration(
+                                        color: AmoledTheme.brandRed,
+                                        borderRadius: BorderRadius.circular(12),
                                       ),
-                                    );
-                                  },
-                                  child: tileWidget,
-                                );
-                              },
+                                      child: const Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            'Geri Dönüşüme At',
+                                            style: TextStyle(
+                                              color: AmoledTheme.pureWhite,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          SizedBox(width: 8),
+                                          Icon(
+                                            Icons.delete_sweep_rounded,
+                                            color: AmoledTheme.pureWhite,
+                                            size: 26,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    onDismissed: (direction) {
+                                      final title = video.title;
+                                      context
+                                          .read<LibraryProvider>()
+                                          .deleteVideo(video);
+                                      ScaffoldMessenger.of(context)
+                                          .hideCurrentSnackBar();
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                              '🗑️ "$title" Geri Dönüşüm Kutusu\'na taşındı (24 saat sonra silinir).'),
+                                          duration:
+                                              const Duration(seconds: 4),
+                                          action: SnackBarAction(
+                                            label: 'Geri Al',
+                                            textColor:
+                                                const Color(0xFF00E676),
+                                            onPressed: () {
+                                              final trashed = library
+                                                  .trashedVideos
+                                                  .firstWhere(
+                                                (t) => t.video.id == video.id,
+                                                orElse: () => TrashedVideoItem(
+                                                    video: video,
+                                                    deletedAt: DateTime.now()),
+                                              );
+                                              library.restoreVideo(trashed);
+                                            },
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    child: tileWidget,
+                                  );
+                                },
+                              ),
                             ),
                           ),
                         ),

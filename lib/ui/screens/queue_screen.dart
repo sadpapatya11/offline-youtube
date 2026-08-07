@@ -5,6 +5,7 @@ import '../../providers/download_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
+import '../widgets/amoled_fast_scroller.dart';
 import '../widgets/download_tile.dart';
 
 enum QueueFilter {
@@ -331,62 +332,65 @@ class QueueScreenState extends State<QueueScreen> {
                             ),
                           ),
                         )
-                      : ListView.separated(
+                      : AmoledFastScroller(
                           controller: _scrollController,
-                          padding: const EdgeInsets.all(16),
-                          itemCount: filteredTasks.length,
-                          separatorBuilder: (context, index) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (context, index) {
-                            final task = filteredTasks[index];
-                            return Dismissible(
-                              key: Key('queue_task_${task.id}'),
-                              direction: DismissDirection.endToStart,
-                              background: Container(
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 20),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFFF5252),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.end,
-                                  children: [
-                                    Text(
-                                      'Kuyruktan Çıkar',
-                                      style: TextStyle(
-                                        color: AmoledTheme.pureWhite,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
+                          child: ListView.separated(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.all(16),
+                            itemCount: filteredTasks.length,
+                            separatorBuilder: (context, index) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              final task = filteredTasks[index];
+                              return Dismissible(
+                                key: Key('queue_task_${task.id}'),
+                                direction: DismissDirection.endToStart,
+                                background: Container(
+                                  alignment: Alignment.centerRight,
+                                  padding: const EdgeInsets.only(right: 20),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFF5252),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: const Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Text(
+                                        'Kuyruktan Çıkar',
+                                        style: TextStyle(
+                                          color: AmoledTheme.pureWhite,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
+                                        ),
                                       ),
-                                    ),
-                                    SizedBox(width: 8),
-                                    Icon(
-                                      Icons.delete_outline_rounded,
-                                      color: AmoledTheme.pureWhite,
-                                      size: 24,
-                                    ),
-                                  ],
+                                      SizedBox(width: 8),
+                                      Icon(
+                                        Icons.delete_outline_rounded,
+                                        color: AmoledTheme.pureWhite,
+                                        size: 24,
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              onDismissed: (_) {
-                                downloadProvider.removeTask(task.id);
-                              },
-                              child: DownloadTile(
-                                task: task,
-                                onPause: () =>
-                                    downloadProvider.pauseTask(task.id),
-                                onResume: () => downloadProvider.resumeTask(
-                                  task.id,
-                                  settingsProvider.settings,
+                                onDismissed: (_) {
+                                  downloadProvider.removeTask(task.id);
+                                },
+                                child: DownloadTile(
+                                  task: task,
+                                  onPause: () =>
+                                      downloadProvider.pauseTask(task.id),
+                                  onResume: () => downloadProvider.resumeTask(
+                                    task.id,
+                                    settingsProvider.settings,
+                                  ),
+                                  onCancel: () =>
+                                      downloadProvider.cancelTask(task.id),
+                                  onDelete: () =>
+                                      downloadProvider.removeTask(task.id),
                                 ),
-                                onCancel: () =>
-                                    downloadProvider.cancelTask(task.id),
-                                onDelete: () =>
-                                    downloadProvider.removeTask(task.id),
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
                         ),
                 ),
               ],

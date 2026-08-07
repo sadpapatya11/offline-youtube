@@ -28,6 +28,11 @@ class VideoTile extends StatelessWidget {
         video.thumbnailPath!.isNotEmpty &&
         File(video.thumbnailPath!).existsSync();
 
+    final hasDuration =
+        video.durationSeconds != null && video.durationSeconds! > 0;
+    final hasUploader =
+        video.uploader != null && video.uploader!.isNotEmpty;
+
     return AmoledCard(
       onTap: onTap,
       onLongPress: onLongPress,
@@ -39,7 +44,7 @@ class VideoTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // 1. Büyük 16:9 Thumbnail ve Süre / Seçim Rozeti
+          // 1. 16:9 Thumbnail
           AspectRatio(
             aspectRatio: 16 / 9,
             child: Stack(
@@ -80,11 +85,11 @@ class VideoTile extends StatelessWidget {
                     ),
                   ),
 
-                // Play Buton Rozeti (Seçim modunda değilse)
+                // Play Butonu (seçim modunda değilse)
                 if (!isSelectionMode)
                   Center(
                     child: Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: Colors.black.withValues(alpha: 0.55),
                         shape: BoxShape.circle,
@@ -93,16 +98,16 @@ class VideoTile extends StatelessWidget {
                       child: const Icon(
                         Icons.play_arrow_rounded,
                         color: AmoledTheme.pureWhite,
-                        size: 28,
+                        size: 24,
                       ),
                     ),
                   ),
 
-                // Seçim Modu Onay Kutusu (Sağ Üst)
+                // Seçim onay kutusu (sağ üst)
                 if (isSelectionMode)
                   Positioned(
-                    top: 10,
-                    right: 10,
+                    top: 8,
+                    right: 8,
                     child: AnimatedContainer(
                       duration: const Duration(milliseconds: 200),
                       padding: const EdgeInsets.all(4),
@@ -122,65 +127,9 @@ class VideoTile extends StatelessWidget {
                         isSelected
                             ? Icons.check_rounded
                             : Icons.circle_outlined,
-                        size: 20,
-                        color: isSelected ? Colors.black : Colors.transparent,
-                      ),
-                    ),
-                  ),
-
-                // Süre Rozeti (Sağ Alt)
-                if (video.formattedDuration != '--:--')
-                  Positioned(
-                    bottom: 8,
-                    right: 8,
-                    child: Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.white12),
-                      ),
-                      child: Text(
-                        video.formattedDuration,
-                        style: const TextStyle(
-                          color: AmoledTheme.pureWhite,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                // Türkçe Altyazı Rozeti (Sol Alt)
-                if (video.subtitlePath != null)
-                  Positioned(
-                    bottom: 8,
-                    left: 8,
-                    child: Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF003311),
-                        borderRadius: BorderRadius.circular(4),
-                        border: Border.all(color: const Color(0xFF00E676)),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.subtitles_rounded,
-                              color: Color(0xFF00E676), size: 12),
-                          SizedBox(width: 4),
-                          Text(
-                            'TR ALTYAZI',
-                            style: TextStyle(
-                              color: Color(0xFF00E676),
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
+                        size: 18,
+                        color:
+                            isSelected ? Colors.black : Colors.transparent,
                       ),
                     ),
                   ),
@@ -188,33 +137,36 @@ class VideoTile extends StatelessWidget {
             ),
           ),
 
-          // 2. Video Başlığı, Kanal, Boyut ve İndirme Tarihi Bilgileri
+          // 2. Bilgi Alanı
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // Başlık
                 Text(
                   video.title,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     color: AmoledTheme.pureWhite,
-                    fontSize: 15,
+                    fontSize: 13.5,
                     fontWeight: FontWeight.bold,
                     height: 1.3,
                   ),
                 ),
-                const SizedBox(height: 8),
-                if (video.uploader != null && video.uploader!.isNotEmpty) ...[
+                const SizedBox(height: 6),
+
+                // Kanal (varsa)
+                if (hasUploader) ...[
                   Row(
                     children: [
                       const Icon(
                         Icons.account_circle_outlined,
-                        size: 14,
+                        size: 12,
                         color: AmoledTheme.subText,
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 4),
                       Expanded(
                         child: Text(
                           video.uploader!,
@@ -222,55 +174,89 @@ class VideoTile extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: AmoledTheme.subText,
-                            fontSize: 12,
+                            fontSize: 11,
                             fontWeight: FontWeight.w500,
                           ),
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 5),
                 ],
+
+                // Alt bilgi satırı: süre • boyut • tarih
                 Row(
                   children: [
+                    // Süre (varsa)
+                    if (hasDuration) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1A1A1A),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(
+                              color: Colors.white12, width: 0.8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.access_time_rounded,
+                                size: 10, color: AmoledTheme.subText),
+                            const SizedBox(width: 3),
+                            Text(
+                              video.formattedDuration,
+                              style: const TextStyle(
+                                color: AmoledTheme.pureWhite,
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
+
+                    // Boyut
                     Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: isSelected
                             ? const Color(0xFF004D25)
                             : const Color(0xFF162518),
-                        borderRadius: BorderRadius.circular(6),
+                        borderRadius: BorderRadius.circular(5),
                         border: Border.all(
-                            color:
-                                const Color(0xFF00E676).withValues(alpha: 0.3)),
+                            color: const Color(0xFF00E676)
+                                .withValues(alpha: 0.3)),
                       ),
                       child: Text(
                         video.formattedSize,
                         style: const TextStyle(
                           color: Color(0xFF00E676),
-                          fontSize: 12,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      '•',
-                      style: TextStyle(color: AmoledTheme.borderDark),
-                    ),
-                    const SizedBox(width: 8),
-                    const Icon(
-                      Icons.schedule_rounded,
-                      size: 13,
-                      color: AmoledTheme.subText,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      dateFormat.format(video.downloadedAt),
-                      style: const TextStyle(
-                        color: Color(0xFF999999),
-                        fontSize: 11.5,
+
+                    const SizedBox(width: 6),
+                    const Text('•',
+                        style: TextStyle(color: AmoledTheme.borderDark, fontSize: 10)),
+                    const SizedBox(width: 6),
+
+                    // Tarih
+                    Expanded(
+                      child: Text(
+                        dateFormat.format(video.downloadedAt),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Color(0xFF888888),
+                          fontSize: 10.5,
+                        ),
                       ),
                     ),
                   ],

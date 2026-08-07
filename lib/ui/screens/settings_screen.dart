@@ -64,145 +64,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 1. Ağ ve İndirme Kuralları
+            // 1. yt-dlp Güncelle (EN ÜSTTE)
             AmoledCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: isOnlyWifi
-                              ? AmoledTheme.brandRed.withValues(alpha: 0.15)
-                              : const Color(0xFF1E1E1E),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.wifi_rounded,
-                          color: isOnlyWifi
-                              ? AmoledTheme.brandRed
-                              : AmoledTheme.pureWhite,
-                          size: 20,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      const Text(
-                        'Ağ Kuralları',
-                        style: TextStyle(
-                          color: AmoledTheme.pureWhite,
-                          fontSize: 15,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AmoledTheme.brandRed.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.system_update_alt_rounded,
+                      color: AmoledTheme.brandRed,
+                      size: 20,
+                    ),
                   ),
-                  const SizedBox(height: 12),
-
-                  // Switch 1: Sadece Wi-Fi ile İndir
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: isOnlyWifi
-                            ? AmoledTheme.brandRed.withValues(alpha: 0.2)
-                            : const Color(0xFF1E1E1E),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: isOnlyWifi
-                              ? AmoledTheme.brandRed.withValues(alpha: 0.4)
-                              : const Color(0xFF333333),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'yt-dlp Motorunu Güncelle',
+                          style: TextStyle(
+                            color: AmoledTheme.pureWhite,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
-                      child: Icon(
-                        isOnlyWifi ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                        color: isOnlyWifi
-                            ? AmoledTheme.brandRed
-                            : const Color(0xFF888888),
-                        size: 20,
-                      ),
-                    ),
-                    title: const Text(
-                      'Sadece Wi-Fi ile İndir',
-                      style: TextStyle(
-                        color: AmoledTheme.pureWhite,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    subtitle: Text(
-                      isOnlyWifi
-                          ? 'Aktif: Mobil verideyken indirmeler bekletilir. Kapatıldığında 1 saat sonra otomatik olarak tekrar açılır.'
-                          : 'Kapalı: Mobil Veri aktif. 1 saat sonra otomatik olarak Wi-Fi moduna geri dönecektir.',
-                      style: TextStyle(
-                        color: isOnlyWifi
-                            ? AmoledTheme.pureWhite.withValues(alpha: 0.9)
-                            : const Color(0xFFFFCC00),
-                        fontSize: 12,
-                      ),
-                    ),
-                    value: isOnlyWifi,
-                    onChanged: (bool value) {
-                      settingsProvider.setOnlyWifi(value);
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(value
-                              ? 'Sadece Wi-Fi ile indirme açıldı.'
-                              : 'Mobil veri açıldı. 1 saat sonra otomatik olarak Wi-Fi moduna dönecek.'),
-                          duration: const Duration(seconds: 3),
+                        Text(
+                          'YouTube değişikliklerine karşı indirme motorunu günceller.',
+                          style: TextStyle(color: AmoledTheme.subText, fontSize: 11),
                         ),
-                      );
-                    },
+                      ],
+                    ),
                   ),
-                  const Divider(color: AmoledTheme.borderDark),
-
-                  // Switch 2: Oynatma Listesinde En Yeni Videoları Önce İndir
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    secondary: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: settings.playlistReverseOrder
-                            ? AmoledTheme.brandRed.withValues(alpha: 0.2)
-                            : const Color(0xFF1E1E1E),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: settings.playlistReverseOrder
-                              ? AmoledTheme.brandRed.withValues(alpha: 0.4)
-                              : const Color(0xFF333333),
-                        ),
-                      ),
-                      child: Icon(
-                        Icons.playlist_play_rounded,
-                        color: settings.playlistReverseOrder
-                            ? AmoledTheme.brandRed
-                            : const Color(0xFF888888),
-                        size: 20,
-                      ),
-                    ),
-                    title: const Text(
-                      'Oynatma Listesinde En Yeni Videoları Önce İndir',
-                      style: TextStyle(
-                        color: AmoledTheme.pureWhite,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    subtitle: Text(
-                      'Oynatma listelerinde en son eklenen videolar ilk sıraya alınır.',
-                      style: TextStyle(
-                        color: settings.playlistReverseOrder
-                            ? AmoledTheme.pureWhite.withValues(alpha: 0.9)
-                            : AmoledTheme.subText,
-                        fontSize: 12,
-                      ),
-                    ),
-                    value: settings.playlistReverseOrder,
-                    onChanged: (bool value) {
-                      settingsProvider.togglePlaylistReverse(value);
-                    },
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: _isUpdatingYtDlp ? null : _updateEngine,
+                    child: _isUpdatingYtDlp
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(AmoledTheme.pureWhite),
+                            ),
+                          )
+                        : const Text('Güncelle'),
                   ),
                 ],
               ),
@@ -281,7 +191,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // 3. Video Süresi Sınırı
+            // 3. Toplam Video Süresi Kotası
             AmoledCard(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -350,67 +260,157 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // 4. yt-dlp Güncelleme (Yalnızca Ayarlar ekranında)
+            // 4. Ağ Kuralları (Toplam Video Süresi'nin ALTINDA)
             AmoledCard(
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: AmoledTheme.brandRed.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(
-                      Icons.system_update_alt_rounded,
-                      color: AmoledTheme.brandRed,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'yt-dlp Motorunu Güncelle',
-                          style: TextStyle(
-                            color: AmoledTheme.pureWhite,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: isOnlyWifi
+                              ? AmoledTheme.brandRed.withValues(alpha: 0.15)
+                              : const Color(0xFF1E1E1E),
+                          borderRadius: BorderRadius.circular(8),
                         ),
-                        Text(
-                          'YouTube değişikliklerine karşı indirme motorunu günceller.',
-                          style: TextStyle(color: AmoledTheme.subText, fontSize: 11),
+                        child: Icon(
+                          Icons.wifi_rounded,
+                          color: isOnlyWifi
+                              ? AmoledTheme.brandRed
+                              : AmoledTheme.pureWhite,
+                          size: 20,
                         ),
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'Ağ Kuralları',
+                        style: TextStyle(
+                          color: AmoledTheme.pureWhite,
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _isUpdatingYtDlp ? null : _updateEngine,
-                    child: _isUpdatingYtDlp
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(AmoledTheme.pureWhite),
-                            ),
-                          )
-                        : const Text('Güncelle'),
+                  const SizedBox(height: 12),
+
+                  // Switch: Sadece Wi-Fi ile İndir
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: isOnlyWifi
+                            ? AmoledTheme.brandRed.withValues(alpha: 0.2)
+                            : const Color(0xFF1E1E1E),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: isOnlyWifi
+                              ? AmoledTheme.brandRed.withValues(alpha: 0.4)
+                              : const Color(0xFF333333),
+                        ),
+                      ),
+                      child: Icon(
+                        isOnlyWifi ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                        color: isOnlyWifi
+                            ? AmoledTheme.brandRed
+                            : const Color(0xFF888888),
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Sadece Wi-Fi ile İndir',
+                      style: TextStyle(
+                        color: AmoledTheme.pureWhite,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(
+                      isOnlyWifi
+                          ? 'Aktif: Mobil verideyken indirmeler bekletilir. Kapatıldığında 1 saat sonra otomatik olarak tekrar açılır.'
+                          : 'Kapalı: Mobil Veri aktif. 1 saat sonra otomatik olarak Wi-Fi moduna geri dönecektir.',
+                      style: TextStyle(
+                        color: isOnlyWifi
+                            ? AmoledTheme.pureWhite.withValues(alpha: 0.9)
+                            : const Color(0xFFFFCC00),
+                        fontSize: 12,
+                      ),
+                    ),
+                    value: isOnlyWifi,
+                    onChanged: (bool value) {
+                      settingsProvider.setOnlyWifi(value);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(value
+                              ? 'Sadece Wi-Fi ile indirme açıldı.'
+                              : 'Mobil veri açıldı. 1 saat sonra otomatik olarak Wi-Fi moduna dönecek.'),
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(color: AmoledTheme.borderDark),
+
+                  // Switch: Oynatma Listesinde En Yeni Videoları Önce İndir
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: settings.playlistReverseOrder
+                            ? AmoledTheme.brandRed.withValues(alpha: 0.2)
+                            : const Color(0xFF1E1E1E),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: settings.playlistReverseOrder
+                              ? AmoledTheme.brandRed.withValues(alpha: 0.4)
+                              : const Color(0xFF333333),
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.playlist_play_rounded,
+                        color: settings.playlistReverseOrder
+                            ? AmoledTheme.brandRed
+                            : const Color(0xFF888888),
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Oynatma Listesinde En Yeni Videoları Önce İndir',
+                      style: TextStyle(
+                        color: AmoledTheme.pureWhite,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Oynatma listelerinde en son eklenen videolar ilk sıraya alınır.',
+                      style: TextStyle(
+                        color: settings.playlistReverseOrder
+                            ? AmoledTheme.pureWhite.withValues(alpha: 0.9)
+                            : AmoledTheme.subText,
+                        fontSize: 12,
+                      ),
+                    ),
+                    value: settings.playlistReverseOrder,
+                    onChanged: (bool value) {
+                      settingsProvider.togglePlaylistReverse(value);
+                    },
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            // 5. Sürüm Bilgisi Rozeti
+            // 5. Sürüm Bilgisi
             Center(
               child: Column(
                 children: [
                   Text(
-                    'Offline YouTube v1.4.0 (Build 7)',
+                    'Offline YouTube v1.4.3 (Build 10)',
                     style: TextStyle(
                       color: AmoledTheme.pureWhite.withValues(alpha: 0.6),
                       fontSize: 12,

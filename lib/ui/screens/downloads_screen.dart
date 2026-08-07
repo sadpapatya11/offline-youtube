@@ -301,16 +301,38 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Toplam ${allVideos.length} video',
-                        style: const TextStyle(
-                          color: AmoledTheme.subText,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${allVideos.length} video',
+                            style: const TextStyle(
+                              color: AmoledTheme.pureWhite,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          if (library.totalDurationSeconds > 0) ...[
+                            const Text(
+                              '  •  ',
+                              style: TextStyle(
+                                color: AmoledTheme.subText,
+                                fontSize: 12,
+                              ),
+                            ),
+                            Text(
+                              library.formattedTotalDuration,
+                              style: const TextStyle(
+                                color: AmoledTheme.pureWhite,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       Text(
-                        'Kullanılan: ${library.formattedTotalUsed}',
+                        library.formattedTotalUsed,
                         style: const TextStyle(
                           color: AmoledTheme.pureWhite,
                           fontSize: 12,

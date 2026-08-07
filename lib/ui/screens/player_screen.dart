@@ -20,15 +20,25 @@ class SubtitleCue {
 
 class PlayerScreen extends StatefulWidget {
   final VideoItem video;
+  final List<VideoItem>? playlist;
+  final int? initialIndex;
 
-  const PlayerScreen({super.key, required this.video});
+  const PlayerScreen({
+    super.key,
+    required this.video,
+    this.playlist,
+    this.initialIndex,
+  });
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  late VideoPlayerController _controller;
+  late List<VideoItem> _playlist;
+  late int _currentIndex;
+
+  VideoPlayerController? _controller;
   bool _isInitialized = false;
   bool _showControls = true;
   String? _error;
@@ -37,52 +47,96 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double _baseSpeed = 1.0;
   bool _isHolding2X = false;
 
-  // Kaldığı Yerden Devam Etme (Playback Position)
+  // Kaldığı Yerden Devam Etme
   int _lastSavedPosMs = 0;
+  bool _hasAutoAdvanced = false;
 
-  // Altyazı Yönetimi (Varsayılan olarak KAPALI)
+  // Altyazı Yönetimi
   bool _showSubtitles = false;
   List<SubtitleCue> _subtitleCues = [];
   String _currentSubtitleText = '';
 
+  // Çift Dokunma İleri/Geri Bildirimi
+  String? _seekFeedbackText;
+  Timer? _seekFeedbackTimer;
+
+  VideoItem get currentVideo =>
+      (_playlist.isNotEmpty && _currentIndex < _playlist.length)
+          ? _playlist[_currentIndex]
+          : widget.video;
+
   @override
   void initState() {
     super.initState();
-    _initPlayer();
-    _loadSubtitles();
+    _playlist = (widget.playlist != null && widget.playlist!.isNotEmpty)
+        ? List.from(widget.playlist!)
+        : [widget.video];
+
+    if (widget.initialIndex != null &&
+        widget.initialIndex! >= 0 &&
+        widget.initialIndex! < _playlist.length) {
+      _currentIndex = widget.initialIndex!;
+    } else {
+      final idx = _playlist.indexWhere((v) => v.id == widget.video.id);
+      _currentIndex = idx >= 0 ? idx : 0;
+    }
+
+    _loadAndPlayCurrentVideo();
   }
 
-  Future<void> _initPlayer() async {
-    try {
-      final file = File(widget.video.filePath);
-      if (!await file.exists()) {
+  Future<void> _loadAndPlayCurrentVideo() async {
+    _hasAutoAdvanced = false;
+    _error = null;
+    _isInitialized = false;
+    _subtitleCues = [];
+    _currentSubtitleText = '';
+    _lastSavedPosMs = 0;
+
+    if (mounted) setState(() {});
+
+    final vid = currentVideo;
+    final file = File(vid.filePath);
+
+    if (!await file.exists()) {
+      if (mounted) {
         setState(() {
-          _error = 'Video dosyası bulunamadı: ${widget.video.filePath}';
+          _error = 'Video dosyası bulunamadı:\n${vid.filePath}';
         });
-        return;
+      }
+      return;
+    }
+
+    try {
+      final oldController = _controller;
+      if (oldController != null) {
+        oldController.removeListener(_onPlayerTick);
+        await oldController.dispose();
+        _controller = null;
       }
 
-      // Kayıtlı kaldığı yeri yükle
-      final savedPos =
-          await PlaybackManager.instance.getPosition(widget.video.id);
+      final savedPos = await PlaybackManager.instance.getPosition(vid.id);
 
-      _controller = VideoPlayerController.file(file);
-      await _controller.initialize();
-      _controller.addListener(_onPlayerTick);
+      final newController = VideoPlayerController.file(file);
+      await newController.initialize();
+      newController.addListener(_onPlayerTick);
 
-      final totalDuration = _controller.value.duration.inMilliseconds;
+      final totalDuration = newController.value.duration.inMilliseconds;
       if (savedPos > 2000 && savedPos < (totalDuration - 4000)) {
-        await _controller.seekTo(Duration(milliseconds: savedPos));
+        await newController.seekTo(Duration(milliseconds: savedPos));
         _lastSavedPosMs = savedPos;
       }
 
-      _controller.play();
+      await newController.setPlaybackSpeed(_baseSpeed);
+      await newController.play();
 
       if (mounted) {
         setState(() {
+          _controller = newController;
           _isInitialized = true;
         });
       }
+
+      await _loadSubtitlesFor(vid);
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -93,24 +147,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _onPlayerTick() {
-    if (!mounted || !_isInitialized) return;
+    final c = _controller;
+    if (!mounted || !_isInitialized || c == null) return;
 
-    final posMs = _controller.value.position.inMilliseconds;
-    final durMs = _controller.value.duration.inMilliseconds;
+    final posMs = c.value.position.inMilliseconds;
+    final durMs = c.value.duration.inMilliseconds;
 
-    // Periyodik olarak (her 2 saniyede bir) pozisyonu kaydet
+    // Periyodik olarak pozisyonu kaydet
     if ((posMs - _lastSavedPosMs).abs() > 2000) {
       _lastSavedPosMs = posMs;
       if (durMs > 0 && posMs >= durMs - 3000) {
-        PlaybackManager.instance.savePosition(widget.video.id, 0);
+        PlaybackManager.instance.savePosition(currentVideo.id, 0);
       } else {
-        PlaybackManager.instance.savePosition(widget.video.id, posMs);
+        PlaybackManager.instance.savePosition(currentVideo.id, posMs);
       }
+    }
+
+    // Video bittiğinde otomatik sıradaki videoya geçiş
+    if (durMs > 0 &&
+        posMs >= (durMs - 500) &&
+        !_hasAutoAdvanced &&
+        _currentIndex < _playlist.length - 1) {
+      _hasAutoAdvanced = true;
+      PlaybackManager.instance.savePosition(currentVideo.id, 0);
+      _playNextVideo();
+      return;
     }
 
     // Altyazı güncellemesi
     if (_showSubtitles && _subtitleCues.isNotEmpty) {
-      final pos = _controller.value.position;
+      final pos = c.value.position;
       final activeCue = _subtitleCues.firstWhere(
         (cue) => pos >= cue.start && pos <= cue.end,
         orElse: () => SubtitleCue(
@@ -133,13 +199,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _loadSubtitles() async {
-    String? path = widget.video.subtitlePath;
+  Future<void> _loadSubtitlesFor(VideoItem vid) async {
+    String? path = vid.subtitlePath;
 
-    // Eğer modelde subtitlePath yoksa dosya sisteminde ara
     if (path == null || !File(path).existsSync()) {
-      final base = widget.video.filePath.substring(
-          0, widget.video.filePath.lastIndexOf('.'));
+      final lastDot = vid.filePath.lastIndexOf('.');
+      final base =
+          lastDot > 0 ? vid.filePath.substring(0, lastDot) : vid.filePath;
       for (final ext in [
         'tr.vtt',
         'tr-orig.vtt',
@@ -183,7 +249,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (start != null && end != null && textLines.isNotEmpty) {
           final cleanText = textLines
               .join('\n')
-              .replaceAll(RegExp(r'<[^>]*>'), '') // HTML/VTT tag temizliği
+              .replaceAll(RegExp(r'<[^>]*>'), '')
               .trim();
           if (cleanText.isNotEmpty) {
             cues.add(SubtitleCue(start: start, end: end, text: cleanText));
@@ -202,18 +268,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
           end = _parseTimestamp(parts[1].trim().split(' ').first);
         }
       } else if (start != null && end != null) {
-        // İndeks satırlarını veya format satırlarını atla
-        if (!RegExp(r'^\d+$').hasMatch(line) && !line.startsWith('NOTE') && !line.startsWith('WEBVTT')) {
+        if (!RegExp(r'^\d+$').hasMatch(line) &&
+            !line.startsWith('NOTE') &&
+            !line.startsWith('WEBVTT')) {
           textLines.add(line);
         }
       }
     }
 
     if (start != null && end != null && textLines.isNotEmpty) {
-      final cleanText = textLines
-          .join('\n')
-          .replaceAll(RegExp(r'<[^>]*>'), '')
-          .trim();
+      final cleanText =
+          textLines.join('\n').replaceAll(RegExp(r'<[^>]*>'), '').trim();
       if (cleanText.isNotEmpty) {
         cues.add(SubtitleCue(start: start, end: end, text: cleanText));
       }
@@ -242,18 +307,73 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return Duration(milliseconds: totalMs.round());
   }
 
+  void _playPreviousVideo() {
+    if (_currentIndex > 0) {
+      _saveCurrentPosition();
+      setState(() {
+        _currentIndex--;
+      });
+      _loadAndPlayCurrentVideo();
+    }
+  }
+
+  void _playNextVideo() {
+    if (_currentIndex < _playlist.length - 1) {
+      _saveCurrentPosition();
+      setState(() {
+        _currentIndex++;
+      });
+      _loadAndPlayCurrentVideo();
+    }
+  }
+
+  void _saveCurrentPosition() {
+    final c = _controller;
+    if (c != null && _isInitialized) {
+      final posMs = c.value.position.inMilliseconds;
+      final durMs = c.value.duration.inMilliseconds;
+      if (durMs > 0 && posMs >= durMs - 3000) {
+        PlaybackManager.instance.savePosition(currentVideo.id, 0);
+      } else if (posMs > 1000) {
+        PlaybackManager.instance.savePosition(currentVideo.id, posMs);
+      }
+    }
+  }
+
+  void _triggerSeekFeedback(String text) {
+    _seekFeedbackTimer?.cancel();
+    setState(() {
+      _seekFeedbackText = text;
+    });
+    _seekFeedbackTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) {
+        setState(() {
+          _seekFeedbackText = null;
+        });
+      }
+    });
+  }
+
+  void _seekRelative(int seconds) {
+    final c = _controller;
+    if (c == null || !_isInitialized) return;
+    final currentPos = c.value.position;
+    final targetPos = currentPos + Duration(seconds: seconds);
+    final clampedPos = targetPos < Duration.zero
+        ? Duration.zero
+        : (targetPos > c.value.duration ? c.value.duration : targetPos);
+    c.seekTo(clampedPos);
+    _triggerSeekFeedback(seconds > 0 ? '+$seconds sn' : '$seconds sn');
+  }
+
   @override
   void dispose() {
-    if (_isInitialized) {
-      final posMs = _controller.value.position.inMilliseconds;
-      final durMs = _controller.value.duration.inMilliseconds;
-      if (durMs > 0 && posMs >= durMs - 3000) {
-        PlaybackManager.instance.savePosition(widget.video.id, 0);
-      } else if (posMs > 1000) {
-        PlaybackManager.instance.savePosition(widget.video.id, posMs);
-      }
-      _controller.removeListener(_onPlayerTick);
-      _controller.dispose();
+    _seekFeedbackTimer?.cancel();
+    _saveCurrentPosition();
+    final c = _controller;
+    if (c != null) {
+      c.removeListener(_onPlayerTick);
+      c.dispose();
     }
     super.dispose();
   }
@@ -262,7 +382,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {
       _baseSpeed = speed;
     });
-    _controller.setPlaybackSpeed(speed);
+    _controller?.setPlaybackSpeed(speed);
   }
 
   void _showSpeedPicker() {
@@ -367,6 +487,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final c = _controller;
+    final hasMultiple = _playlist.length > 1;
+
     return Scaffold(
       backgroundColor: AmoledTheme.pureBlack,
       extendBodyBehindAppBar: true,
@@ -378,18 +501,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
               color: AmoledTheme.pureWhite),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text(
-          widget.video.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: AmoledTheme.pureWhite,
-          ),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              currentVideo.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AmoledTheme.pureWhite,
+              ),
+            ),
+            if (hasMultiple)
+              Text(
+                '${_currentIndex + 1} / ${_playlist.length} video',
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: AmoledTheme.subText,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
         ),
         actions: [
-          // Altyazı Butonu (Varsa aktifleşir / Açılıp kapatılabilir)
           if (_subtitleCues.isNotEmpty)
             IconButton(
               icon: Icon(
@@ -417,7 +554,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 );
               },
             ),
-          // Hız Seçici Butonu
           TextButton(
             onPressed: _showSpeedPicker,
             child: Container(
@@ -455,280 +591,364 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: AmoledTheme.pureWhite),
                     ),
+                    const SizedBox(height: 16),
+                    if (hasMultiple && _currentIndex < _playlist.length - 1)
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF222222),
+                          foregroundColor: AmoledTheme.pureWhite,
+                        ),
+                        onPressed: _playNextVideo,
+                        icon: const Icon(Icons.skip_next_rounded),
+                        label: const Text('Sonraki Videoya Geç'),
+                      ),
                   ],
                 ),
               )
-            : !_isInitialized
+            : (!_isInitialized || c == null)
                 ? const CircularProgressIndicator(
                     valueColor:
                         AlwaysStoppedAnimation<Color>(AmoledTheme.pureWhite),
                   )
-                : GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      setState(() {
-                        _showControls = !_showControls;
-                      });
-                    },
-                    // Ekrana basılı tutulduğunda 2 kat hızlı oynatma
-                    onLongPressStart: (_) {
-                      setState(() {
-                        _isHolding2X = true;
-                      });
-                      _controller.setPlaybackSpeed(2.0);
-                    },
-                    onLongPressEnd: (_) {
-                      setState(() {
-                        _isHolding2X = false;
-                      });
-                      _controller.setPlaybackSpeed(_baseSpeed);
-                    },
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        AspectRatio(
-                          aspectRatio: _controller.value.aspectRatio,
-                          child: VideoPlayer(_controller),
+                : Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: c.value.aspectRatio,
+                        child: VideoPlayer(c),
+                      ),
+
+                      // Çift Dokunma & Basılı Tutma Alanı
+                      Positioned.fill(
+                        child: Row(
+                          children: [
+                            // Sol taraf: Çift dokunma 10s geri
+                            Expanded(
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onDoubleTap: () => _seekRelative(-10),
+                                onTap: () {
+                                  setState(() {
+                                    _showControls = !_showControls;
+                                  });
+                                },
+                                onLongPressStart: (_) {
+                                  setState(() {
+                                    _isHolding2X = true;
+                                  });
+                                  c.setPlaybackSpeed(2.0);
+                                },
+                                onLongPressEnd: (_) {
+                                  setState(() {
+                                    _isHolding2X = false;
+                                  });
+                                  c.setPlaybackSpeed(_baseSpeed);
+                                },
+                              ),
+                            ),
+                            // Sağ taraf: Çift dokunma 10s ileri
+                            Expanded(
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.translucent,
+                                onDoubleTap: () => _seekRelative(10),
+                                onTap: () {
+                                  setState(() {
+                                    _showControls = !_showControls;
+                                  });
+                                },
+                                onLongPressStart: (_) {
+                                  setState(() {
+                                    _isHolding2X = true;
+                                  });
+                                  c.setPlaybackSpeed(2.0);
+                                },
+                                onLongPressEnd: (_) {
+                                  setState(() {
+                                    _isHolding2X = false;
+                                  });
+                                  c.setPlaybackSpeed(_baseSpeed);
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // 2X HIZLI OYNATILIYOR ROZETİ
+                      if (_isHolding2X)
+                        Positioned(
+                          top: 80,
+                          child: IgnorePointer(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.9),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                    color: const Color(0xFFFFCC00), width: 1.5),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFFFFCC00)
+                                        .withValues(alpha: 0.4),
+                                    blurRadius: 12,
+                                    spreadRadius: 2,
+                                  ),
+                                ],
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.fast_forward_rounded,
+                                      color: Color(0xFFFFCC00), size: 18),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    '2X Hızında Oynatılıyor',
+                                    style: TextStyle(
+                                      color: AmoledTheme.pureWhite,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12.5,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
 
-                        // 2X HIZLI OYNATILIYOR ROZETİ (Basılı Tutulduğunda)
-                        if (_isHolding2X)
-                          Positioned(
-                            top: 64,
-                            child: IgnorePointer(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.9),
-                                  borderRadius: BorderRadius.circular(20),
-                                  border: Border.all(
-                                      color: const Color(0xFFFFCC00),
-                                      width: 1.5),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFFFFCC00)
-                                          .withValues(alpha: 0.4),
-                                      blurRadius: 12,
-                                      spreadRadius: 2,
-                                    ),
-                                  ],
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.fast_forward_rounded,
-                                        color: Color(0xFFFFCC00), size: 18),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      '2X Hızında Oynatılıyor',
-                                      style: TextStyle(
-                                        color: AmoledTheme.pureWhite,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 12.5,
-                                      ),
-                                    ),
-                                  ],
+                      // Hızlı Sarma Geri Bildirimi
+                      if (_seekFeedbackText != null)
+                        IgnorePointer(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 18, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.8),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                  color: Colors.white38, width: 1),
+                            ),
+                            child: Text(
+                              _seekFeedbackText!,
+                              style: const TextStyle(
+                                color: AmoledTheme.pureWhite,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+
+                      // ALTYAZI KATMANI
+                      if (_showSubtitles && _currentSubtitleText.isNotEmpty)
+                        Positioned(
+                          bottom: _showControls ? 120 : 40,
+                          left: 20,
+                          right: 20,
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.8),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                _currentSubtitleText,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: AmoledTheme.pureWhite,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.25,
                                 ),
                               ),
                             ),
                           ),
+                        ),
 
-                        // ALTYAZI KATMANI
-                        if (_showSubtitles && _currentSubtitleText.isNotEmpty)
-                          Positioned(
-                            bottom: _showControls ? 110 : 40,
-                            left: 20,
-                            right: 20,
-                            child: Center(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.8),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  _currentSubtitleText,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: AmoledTheme.pureWhite,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w600,
-                                    height: 1.25,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-
-                        // KONTROL DÜĞMELERİ KATMANI
-                        if (_showControls) ...[
-                          // Dark overlay backdrop
-                          Container(
+                      // KONTROL DÜĞMELERİ KATMANI
+                      if (_showControls) ...[
+                        IgnorePointer(
+                          child: Container(
                             color: Colors.black38,
                           ),
-                          // Center Play/Pause / Rewind / Fast Forward Controls
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.5),
-                                  shape: BoxShape.circle,
+                        ),
+                        // Orta Kontrol Butonları (Önceki, Geri 10s, Oynat/Duraklat, İleri 10s, Sonraki)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (hasMultiple) ...[
+                              IconButton(
+                                iconSize: 32,
+                                icon: Icon(
+                                  Icons.skip_previous_rounded,
+                                  color: _currentIndex > 0
+                                      ? AmoledTheme.pureWhite
+                                      : Colors.white24,
                                 ),
-                                child: IconButton(
-                                  iconSize: 36,
-                                  icon: const Icon(Icons.replay_10_rounded,
-                                      color: AmoledTheme.pureWhite),
-                                  onPressed: () {
-                                    final newPos = _controller.value.position -
-                                        const Duration(seconds: 10);
-                                    _controller.seekTo(newPos < Duration.zero
-                                        ? Duration.zero
-                                        : newPos);
-                                  },
-                                ),
+                                onPressed: _currentIndex > 0
+                                    ? _playPreviousVideo
+                                    : null,
                               ),
-                              const SizedBox(width: 28),
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.6),
-                                  shape: BoxShape.circle,
-                                ),
-                                child: IconButton(
-                                  iconSize: 64,
-                                  icon: Icon(
-                                    _controller.value.isPlaying
-                                        ? Icons.pause_circle_filled_rounded
-                                        : Icons.play_circle_filled_rounded,
-                                    color: AmoledTheme.pureWhite,
-                                  ),
-                                  onPressed: () {
-                                    setState(() {
-                                      _controller.value.isPlaying
-                                          ? _controller.pause()
-                                          : _controller.play();
-                                    });
-                                  },
-                                ),
+                              const SizedBox(width: 12),
+                            ],
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.5),
+                                shape: BoxShape.circle,
                               ),
-                              const SizedBox(width: 28),
-                              Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.5),
-                                  shape: BoxShape.circle,
+                              child: IconButton(
+                                iconSize: 36,
+                                icon: const Icon(Icons.replay_10_rounded,
+                                    color: AmoledTheme.pureWhite),
+                                onPressed: () => _seekRelative(-10),
+                              ),
+                            ),
+                            const SizedBox(width: 20),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.6),
+                                shape: BoxShape.circle,
+                              ),
+                              child: IconButton(
+                                iconSize: 64,
+                                icon: Icon(
+                                  c.value.isPlaying
+                                      ? Icons.pause_circle_filled_rounded
+                                      : Icons.play_circle_filled_rounded,
+                                  color: AmoledTheme.pureWhite,
                                 ),
-                                child: IconButton(
-                                  iconSize: 36,
-                                  icon: const Icon(Icons.forward_10_rounded,
-                                      color: AmoledTheme.pureWhite),
-                                  onPressed: () {
-                                    final newPos = _controller.value.position +
-                                        const Duration(seconds: 10);
-                                    _controller.seekTo(newPos);
-                                  },
+                                onPressed: () {
+                                  setState(() {
+                                    c.value.isPlaying
+                                        ? c.pause()
+                                        : c.play();
+                                  });
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 20),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.5),
+                                shape: BoxShape.circle,
+                              ),
+                              child: IconButton(
+                                iconSize: 36,
+                                icon: const Icon(Icons.forward_10_rounded,
+                                    color: AmoledTheme.pureWhite),
+                                onPressed: () => _seekRelative(10),
+                              ),
+                            ),
+                            if (hasMultiple) ...[
+                              const SizedBox(width: 12),
+                              IconButton(
+                                iconSize: 32,
+                                icon: Icon(
+                                  Icons.skip_next_rounded,
+                                  color: _currentIndex < _playlist.length - 1
+                                      ? AmoledTheme.pureWhite
+                                      : Colors.white24,
                                 ),
+                                onPressed:
+                                    _currentIndex < _playlist.length - 1
+                                        ? _playNextVideo
+                                        : null,
                               ),
                             ],
-                          ),
-                          // Bottom Timeline and Duration with Safe Area and Elevated Position
-                          Positioned(
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            child: SafeArea(
-                              bottom: true,
-                              child: Container(
-                                padding: const EdgeInsets.only(
-                                  left: 16,
-                                  right: 16,
-                                  bottom: 32, // Elevated above Android gesture/button bar
-                                  top: 12,
-                                ),
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    begin: Alignment.topCenter,
-                                    end: Alignment.bottomCenter,
-                                    colors: [
-                                      Colors.transparent,
-                                      Colors.black.withValues(alpha: 0.85),
-                                    ],
-                                  ),
-                                ),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    SliderTheme(
-                                      data: SliderTheme.of(context).copyWith(
-                                        thumbColor: AmoledTheme.pureWhite,
-                                        activeTrackColor: AmoledTheme.pureWhite,
-                                        inactiveTrackColor:
-                                            Colors.white.withValues(alpha: 0.3),
-                                        trackHeight: 4,
-                                        thumbShape:
-                                            const RoundSliderThumbShape(
-                                                enabledThumbRadius: 8),
-                                        overlayShape:
-                                            const RoundSliderOverlayShape(
-                                                overlayRadius: 16),
-                                      ),
-                                      child: Slider(
-                                        value: _controller
-                                            .value.position.inMilliseconds
-                                            .toDouble()
-                                            .clamp(
-                                                0.0,
-                                                _controller.value.duration
-                                                    .inMilliseconds
-                                                    .toDouble()),
-                                        min: 0.0,
-                                        max: _controller
-                                            .value.duration.inMilliseconds
-                                            .toDouble(),
-                                        onChanged: (val) {
-                                          _controller.seekTo(Duration(
-                                              milliseconds: val.toInt()));
-                                        },
-                                      ),
-                                    ),
-                                    Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8),
-                                      child: Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            _formatDuration(
-                                                _controller.value.position),
-                                            style: const TextStyle(
-                                              color: AmoledTheme.pureWhite,
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                          Text(
-                                            _formatDuration(
-                                                _controller.value.duration),
-                                            style: TextStyle(
-                                              color: AmoledTheme.pureWhite
-                                                  .withValues(alpha: 0.7),
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.w500,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
+                          ],
+                        ),
+                        // Alt Süre Çubuğu
+                        Positioned(
+                          bottom: 0,
+                          left: 0,
+                          right: 0,
+                          child: SafeArea(
+                            bottom: true,
+                            child: Container(
+                              padding: const EdgeInsets.only(
+                                left: 16,
+                                right: 16,
+                                bottom: 32,
+                                top: 12,
+                              ),
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topCenter,
+                                  end: Alignment.bottomCenter,
+                                  colors: [
+                                    Colors.transparent,
+                                    Colors.black.withValues(alpha: 0.85),
                                   ],
                                 ),
                               ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SliderTheme(
+                                    data: SliderTheme.of(context).copyWith(
+                                      thumbColor: AmoledTheme.pureWhite,
+                                      activeTrackColor: AmoledTheme.pureWhite,
+                                      inactiveTrackColor: Colors.white
+                                          .withValues(alpha: 0.3),
+                                      trackHeight: 4,
+                                      thumbShape: const RoundSliderThumbShape(
+                                          enabledThumbRadius: 8),
+                                      overlayShape:
+                                          const RoundSliderOverlayShape(
+                                              overlayRadius: 16),
+                                    ),
+                                    child: Slider(
+                                      value: c.value.position.inMilliseconds
+                                          .toDouble()
+                                          .clamp(
+                                              0.0,
+                                              c.value.duration.inMilliseconds
+                                                  .toDouble()),
+                                      min: 0.0,
+                                      max: c.value.duration.inMilliseconds
+                                          .toDouble(),
+                                      onChanged: (val) {
+                                        c.seekTo(Duration(
+                                            milliseconds: val.toInt()));
+                                      },
+                                    ),
+                                  ),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8),
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          _formatDuration(c.value.position),
+                                          style: const TextStyle(
+                                            color: AmoledTheme.pureWhite,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                        Text(
+                                          _formatDuration(c.value.duration),
+                                          style: TextStyle(
+                                            color: AmoledTheme.pureWhite
+                                                .withValues(alpha: 0.7),
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ],
+                        ),
                       ],
-                    ),
+                    ],
                   ),
       ),
     );

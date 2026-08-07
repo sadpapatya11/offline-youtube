@@ -495,8 +495,11 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                                           Navigator.push(
                                             context,
                                             MaterialPageRoute(
-                                              builder: (_) =>
-                                                  PlayerScreen(video: video),
+                                              builder: (_) => PlayerScreen(
+                                                video: video,
+                                                playlist: filteredVideos,
+                                                initialIndex: index,
+                                              ),
                                             ),
                                           );
                                         }

@@ -383,7 +383,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             task.etaSeconds = 0;
             task.errorMessage = null;
 
-            // Video metadata kaydet (süreyi disk taramasında hatırlamak için)
+             // Video metadata kaydet (süreyi disk taramasında hatırlamak için)
             try {
               final dir = Directory(StorageManager.instance.currentDownloadPath);
               if (dir.existsSync()) {
@@ -391,6 +391,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                 final cleanTaskTitle = task.title
                     .replaceAll(RegExp(r'[^a-zA-Z0-9ığüşöçİĞÜŞÖÇ]'), '')
                     .toLowerCase();
+                final vid = VideoItem.extractVideoId(task.url);
                 for (final f in files) {
                   if (f is File) {
                     final ext = f.path.split('.').last.toLowerCase();
@@ -402,7 +403,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                       if (name.contains(task.title) ||
                           (cleanTaskTitle.isNotEmpty &&
                               cleanName.contains(cleanTaskTitle)) ||
-                          (task.id.isNotEmpty && name.contains(task.id))) {
+                          (task.id.isNotEmpty && name.contains(task.id)) ||
+                          (vid != null && name.contains(vid))) {
                         StorageManager.instance.saveVideoMetadata(
                           f.path,
                           durationSeconds: task.durationSeconds,
@@ -464,11 +466,30 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                     task.errorMessage = null;
                     _saveTasksToStorage();
                     notifyListeners();
-                    _triggerNextQueue();
+                    _triggerNextQueue(delayMs: 1500);
                   }
                 }).catchError((_) {
                   _isAutoUpdatingEngine = false;
                 });
+              }
+
+              final isRateLimit = rawError.contains('429') ||
+                  rawError.toLowerCase().contains('too many requests');
+
+              if (isRateLimit && task.retryCount < 2) {
+                // YouTube rate limit (429) durumunda 6 saniye dinlen ve tekrar dene
+                task.retryCount++;
+                task.status = DownloadStatus.queued;
+                task.hadPreviousError = true;
+                task.speed = '';
+                task.errorMessage = null;
+                if (_activeTaskId == taskId) {
+                  _activeTaskId = null;
+                }
+                _saveTasksToStorage();
+                notifyListeners();
+                _triggerNextQueue(delayMs: 6000);
+                return;
               }
 
               if (task.retryCount < 1) {
@@ -478,18 +499,24 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                 task.hadPreviousError = true;
                 task.speed = '';
                 task.errorMessage = null;
+                if (_activeTaskId == taskId) {
+                  _activeTaskId = null;
+                }
+                _saveTasksToStorage();
+                notifyListeners();
+                _triggerNextQueue(delayMs: 2000);
               } else {
                 task.status = DownloadStatus.error;
                 task.hadPreviousError = true;
                 task.speed = '';
                 task.errorMessage = cleanErrorMessage(rawError);
+                if (_activeTaskId == taskId) {
+                  _activeTaskId = null;
+                }
+                _saveTasksToStorage();
+                notifyListeners();
+                _triggerNextQueue(delayMs: 1500);
               }
-              if (_activeTaskId == taskId) {
-                _activeTaskId = null;
-              }
-              _saveTasksToStorage();
-              notifyListeners();
-              _triggerNextQueue();
             }
             break;
 
@@ -511,10 +538,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
-  void _triggerNextQueue() {
+  void _triggerNextQueue({int delayMs = 1200}) {
     if (_isQueuePaused) return;
 
-    Future.delayed(const Duration(milliseconds: 500), () {
+    Future.delayed(Duration(milliseconds: delayMs), () {
       if (!_isQueuePaused) {
         processNextQueue();
       }
@@ -633,49 +660,6 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       nextTask.errorMessage = null;
       notifyListeners();
       _saveTasksToStorage();
-
-      // Görev başlığı jenerik/eksik ise veya küçük resmi yoksa arka planda gerçek verileri çekip güncelle
-      final hasGenericTitle = nextTask.title.isEmpty ||
-          nextTask.title.toLowerCase().startsWith('video') ||
-          nextTask.title.toLowerCase() == 'null' ||
-          nextTask.thumbnail == null ||
-          nextTask.thumbnail!.isEmpty;
-
-      if (hasGenericTitle) {
-        NativeBridge.instance.fetchMetadata(nextTask.url).then((meta) {
-          if (meta != null) {
-            final t = meta['title']?.toString().trim();
-            final th = meta['thumbnail']?.toString().trim();
-            final dur = meta['duration'] as int?;
-            final up = meta['uploader']?.toString().trim();
-            bool changed = false;
-            if (t != null &&
-                t.isNotEmpty &&
-                t.toLowerCase() != 'null' &&
-                !t.toLowerCase().contains('[deleted') &&
-                !t.toLowerCase().contains('[private')) {
-              nextTask.title = t;
-              changed = true;
-            }
-            if (th != null && th.isNotEmpty && th.toLowerCase() != 'null') {
-              nextTask.thumbnail = th;
-              changed = true;
-            }
-            if (dur != null && dur > 0) {
-              nextTask.durationSeconds = dur;
-              changed = true;
-            }
-            if (up != null && up.isNotEmpty && up.toLowerCase() != 'null') {
-              nextTask.uploader = up;
-              changed = true;
-            }
-            if (changed) {
-              notifyListeners();
-              _saveTasksToStorage();
-            }
-          }
-        }).catchError((_) {});
-      }
 
       final started = await NativeBridge.instance.startDownload(
         taskId: nextTask.id,

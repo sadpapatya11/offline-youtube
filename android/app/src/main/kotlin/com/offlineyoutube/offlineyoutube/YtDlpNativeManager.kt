@@ -80,7 +80,7 @@ object YtDlpNativeManager {
                 addOption("--no-cache-dir")
                 addOption("--no-check-certificates")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
-                addOption("--extractor-args", "youtube:lang=tr")
+                addOption("--extractor-args", "youtube:player_client=android,ios,web;lang=tr")
                 addOption("--geo-bypass-country", "TR")
                 if (isPlaylist) {
                     addOption("--flat-playlist")
@@ -116,7 +116,7 @@ object YtDlpNativeManager {
                 addOption("--no-cache-dir")
                 addOption("--no-check-certificates")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
-                addOption("--extractor-args", "youtube:lang=tr")
+                addOption("--extractor-args", "youtube:player_client=android,ios,web;lang=tr")
                 addOption("--geo-bypass-country", "TR")
                 addOption("--flat-playlist")
                 addOption("-J")
@@ -250,11 +250,14 @@ object YtDlpNativeManager {
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
+                addOption("--no-cache-dir")
+                addOption("--no-check-certificates")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
-                addOption("--extractor-args", "youtube:lang=tr")
+                addOption("--extractor-args", "youtube:player_client=android,ios,web;lang=tr")
                 addOption("--geo-bypass-country", "TR")
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
-                addOption("-o", "${outputDir.absolutePath}/%(title)s.%(ext)s")
+                // Safe formatting: 100-byte max title + unique video id ensures 100% Android filesystem safety
+                addOption("-o", "${outputDir.absolutePath}/%(title).100B [%(id)s].%(ext)s")
                 addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
                 
                 // 1. Zero-Reencode FFmpeg Remuxing (Direct container stream copy with thread cap)
@@ -270,12 +273,10 @@ object YtDlpNativeManager {
 
                 // 4. Android filesystem compatibility (Strip illegal chars : " ? * < > | and restrict filename length)
                 addOption("--windows-filenames")
-                addOption("--trim-filenames", "160")
 
                 addOption("--no-mtime")
                 addOption("--continue")
                 addOption("--ignore-errors")
-                addOption("--no-abort-on-error")
                 addOption("--no-playlist")
                 
                 // 5. Türkçe Altyazı (Sidecar .vtt/.srt files - no video re-encoding)
@@ -286,7 +287,9 @@ object YtDlpNativeManager {
                 
                 // 6. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
                 addOption("--limit-rate", dynamicRateLimit)
-                addOption("--sleep-interval", "2")
+                addOption("--sleep-interval", "1")
+                addOption("--max-sleep-interval", "3")
+                addOption("--retry-sleep", "5")
                 addOption("--retries", "10")
                 addOption("--fragment-retries", "10")
             }

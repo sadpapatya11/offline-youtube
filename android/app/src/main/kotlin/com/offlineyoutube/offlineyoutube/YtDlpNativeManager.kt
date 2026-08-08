@@ -268,18 +268,23 @@ object YtDlpNativeManager {
                 addOption("--buffer-size", "64K")
                 addOption("--http-chunk-size", "10M")
 
+                // 4. Android filesystem compatibility (Strip illegal chars : " ? * < > | and restrict filename length)
+                addOption("--windows-filenames")
+                addOption("--trim-filenames", "160")
+
                 addOption("--no-mtime")
                 addOption("--continue")
                 addOption("--ignore-errors")
+                addOption("--no-abort-on-error")
                 addOption("--no-playlist")
                 
-                // 4. Türkçe Altyazı (Sidecar .vtt/.srt files - no video re-encoding)
+                // 5. Türkçe Altyazı (Sidecar .vtt/.srt files - no video re-encoding)
                 addOption("--write-subs")
                 addOption("--write-auto-subs")
                 addOption("--sub-lang", "tr,tr-orig,tr-TR,en")
                 addOption("--sub-format", "vtt/srt/best")
                 
-                // 5. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
+                // 6. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
                 addOption("--limit-rate", dynamicRateLimit)
                 addOption("--sleep-interval", "2")
                 addOption("--retries", "10")

@@ -172,6 +172,7 @@ class StorageManager {
             int? durationSeconds;
             String? uploader;
             String? sourceUrl;
+            String displayTitle = title;
             final metaFile = File('$baseWithoutExt.meta.json');
             if (await metaFile.exists()) {
               try {
@@ -180,12 +181,16 @@ class StorageManager {
                 durationSeconds = metaJson['durationSeconds'] as int?;
                 uploader = metaJson['uploader'] as String?;
                 sourceUrl = metaJson['url'] as String?;
+                if (metaJson['title'] != null &&
+                    (metaJson['title'] as String).trim().isNotEmpty) {
+                  displayTitle = (metaJson['title'] as String).trim();
+                }
               } catch (_) {}
             }
 
             videos.add(VideoItem(
               id: entity.path.hashCode.toString(),
-              title: title,
+              title: displayTitle,
               filePath: entity.path,
               fileSizeBytes: exactSize,
               durationSeconds: durationSeconds,

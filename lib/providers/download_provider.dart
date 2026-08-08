@@ -388,18 +388,29 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
               final dir = Directory(StorageManager.instance.currentDownloadPath);
               if (dir.existsSync()) {
                 final files = dir.listSync();
+                final cleanTaskTitle = task.title
+                    .replaceAll(RegExp(r'[^a-zA-Z0-9ığüşöçİĞÜŞÖÇ]'), '')
+                    .toLowerCase();
                 for (final f in files) {
                   if (f is File) {
-                    final name = f.path.split(Platform.pathSeparator).last;
-                    if (name.contains(task.title) ||
-                        (task.id.isNotEmpty && name.contains(task.id))) {
-                      StorageManager.instance.saveVideoMetadata(
-                        f.path,
-                        durationSeconds: task.durationSeconds,
-                        uploader: task.uploader,
-                        title: task.title,
-                        url: task.url,
-                      );
+                    final ext = f.path.split('.').last.toLowerCase();
+                    if (['mp4', 'mkv', 'webm', 'ts', '3gp', 'm4a'].contains(ext)) {
+                      final name = f.path.split(Platform.pathSeparator).last;
+                      final cleanName = name
+                          .replaceAll(RegExp(r'[^a-zA-Z0-9ığüşöçİĞÜŞÖÇ]'), '')
+                          .toLowerCase();
+                      if (name.contains(task.title) ||
+                          (cleanTaskTitle.isNotEmpty &&
+                              cleanName.contains(cleanTaskTitle)) ||
+                          (task.id.isNotEmpty && name.contains(task.id))) {
+                        StorageManager.instance.saveVideoMetadata(
+                          f.path,
+                          durationSeconds: task.durationSeconds,
+                          uploader: task.uploader,
+                          title: task.title,
+                          url: task.url,
+                        );
+                      }
                     }
                   }
                 }
@@ -460,10 +471,19 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                 });
               }
 
-              task.status = DownloadStatus.error;
-              task.hadPreviousError = true;
-              task.speed = '';
-              task.errorMessage = cleanErrorMessage(rawError);
+              if (task.retryCount < 1) {
+                // 1 kez otomatik hızlı tekrar dene
+                task.retryCount++;
+                task.status = DownloadStatus.queued;
+                task.hadPreviousError = true;
+                task.speed = '';
+                task.errorMessage = null;
+              } else {
+                task.status = DownloadStatus.error;
+                task.hadPreviousError = true;
+                task.speed = '';
+                task.errorMessage = cleanErrorMessage(rawError);
+              }
               if (_activeTaskId == taskId) {
                 _activeTaskId = null;
               }
@@ -536,6 +556,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           t.status == DownloadStatus.error) {
         t.status = DownloadStatus.queued;
         t.errorMessage = null;
+        t.retryCount = 0;
       }
     }
 
@@ -593,26 +614,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     _isProcessingQueue = true;
     try {
-      // Hata almış olan görevleri öncelikle tekrar denemek üzere sıraya al
-      for (final t in _tasks) {
-        if (t.status == DownloadStatus.error) {
-          t.status = DownloadStatus.queued;
-          t.hadPreviousError = true;
-          t.errorMessage = null;
-        }
-      }
-
-      // 1. Önce daha önce hata almış olan bir 'queued' görev ara
-      int nextTaskIndex = _tasks.indexWhere(
-        (t) => t.status == DownloadStatus.queued && t.hadPreviousError,
+      // Sıradaki ilk 'queued' görevi seç
+      final nextTaskIndex = _tasks.indexWhere(
+        (t) => t.status == DownloadStatus.queued,
       );
-
-      // 2. Eğer hata almış görev yoksa normal 'queued' görev ara
-      if (nextTaskIndex == -1) {
-        nextTaskIndex = _tasks.indexWhere(
-          (t) => t.status == DownloadStatus.queued,
-        );
-      }
 
       if (nextTaskIndex == -1) {
         _isProcessingQueue = false;
@@ -789,6 +794,14 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       return 'YouTube istek sınırı aşıldı. Lütfen biraz bekleyin.';
     }
 
+    // Depolama / Dosya Sistemi Hatası
+    if (result.contains('Errno 2') ||
+        result.toLowerCase().contains('no such file or directory') ||
+        result.toLowerCase().contains('invalid argument') ||
+        result.toLowerCase().contains('filename too long')) {
+      return 'Depolama dosya adı biçimlendirme hatası (Karakterler otomatik düzeltildi, yeniden deneyin).';
+    }
+
     // Remove yt-dlp update warnings
     result = result.replaceAll(
         RegExp(r'WARNING:\s*Your yt-dlp version is older than \d+ days!.*?(ERROR:|$)',
@@ -814,6 +827,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (task.status == DownloadStatus.error) {
         task.status = DownloadStatus.queued;
         task.errorMessage = null;
+        task.retryCount = 0;
       }
     }
     await _saveTasksToStorage();

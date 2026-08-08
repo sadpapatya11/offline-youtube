@@ -26,6 +26,7 @@ class DownloadTask {
   bool hadPreviousError;
   String? totalSize;
   String? downloadedSize;
+  int retryCount;
   final DateTime createdAt;
 
   DownloadTask({
@@ -44,6 +45,7 @@ class DownloadTask {
     this.hadPreviousError = false,
     this.totalSize,
     this.downloadedSize,
+    this.retryCount = 0,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -129,6 +131,7 @@ class DownloadTask {
     bool? hadPreviousError,
     String? totalSize,
     String? downloadedSize,
+    int? retryCount,
     String? title,
     String? thumbnail,
     int? durationSeconds,
@@ -151,6 +154,7 @@ class DownloadTask {
       hadPreviousError: hadPreviousError ?? this.hadPreviousError,
       totalSize: totalSize ?? this.totalSize,
       downloadedSize: downloadedSize ?? this.downloadedSize,
+      retryCount: retryCount ?? this.retryCount,
       createdAt: createdAt,
     );
   }
@@ -172,6 +176,7 @@ class DownloadTask {
       'hadPreviousError': hadPreviousError,
       'totalSize': totalSize,
       'downloadedSize': downloadedSize,
+      'retryCount': retryCount,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -216,6 +221,7 @@ class DownloadTask {
               json['errorMessage'] != null),
       totalSize: rawTotalSize.isNotEmpty ? rawTotalSize : null,
       downloadedSize: rawDownloadedSize.isNotEmpty ? rawDownloadedSize : null,
+      retryCount: json['retryCount'] as int? ?? 0,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
           : DateTime.now(),

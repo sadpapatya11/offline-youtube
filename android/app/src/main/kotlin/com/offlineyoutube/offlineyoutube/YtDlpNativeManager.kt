@@ -264,8 +264,8 @@ object YtDlpNativeManager {
                 addOption("--sleep-requests", "1.5")
                 addOption("--sleep-subtitles", "1")
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
-                // Safe formatting: 80-char max title + unique video id ensures 100% Android filesystem safety without slicing multi-byte UTF-8 chars
-                addOption("-o", "${outputDir.absolutePath}/%(title).80s [%(id)s].%(ext)s")
+                // Safe formatting: 50-char max title (50 chars * up to 4 bytes/char = 200 bytes) + unique video id keeps the full filename, incl. sidecar suffixes like [id].f137.mp4.part, under Android's 255-byte filename limit without slicing multi-byte UTF-8 chars
+                addOption("-o", "${outputDir.absolutePath}/%(title).50s [%(id)s].%(ext)s")
                 addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
                 
                 // 1. Zero-Reencode FFmpeg Remuxing (Direct container stream copy with thread cap)
@@ -279,9 +279,10 @@ object YtDlpNativeManager {
                 addOption("--buffer-size", "64K")
                 addOption("--http-chunk-size", "10M")
 
-                // 4. Android filesystem compatibility (Strip illegal chars : " ? * < > | and restrict filename length)
+                // 4. Android filesystem compatibility (Strip illegal chars : " ? * < > |)
+                // NOTE: --trim-filenames omitted: it limits by CHARACTERS (not bytes), so it could not
+                // guarantee the 255-byte limit; the %(title).50s template already caps the name.
                 addOption("--windows-filenames")
-                addOption("--trim-filenames", "100")
 
                 addOption("--no-mtime")
                 addOption("--continue")

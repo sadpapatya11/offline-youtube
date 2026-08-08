@@ -839,7 +839,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         result.toLowerCase().contains('no such file or directory') ||
         result.toLowerCase().contains('invalid argument') ||
         result.toLowerCase().contains('filename too long')) {
-      return 'Depolama dosya adı biçimlendirme hatası (Karakterler otomatik düzeltildi, yeniden deneyin).';
+      final rawHint = result.length > 400 ? result.substring(0, 400) : result;
+      return 'Depolama dosya adı biçimlendirme hatası (Karakterler otomatik düzeltildi, yeniden deneyin).\nHam hata: $rawHint';
     }
 
     // Remove yt-dlp update warnings
@@ -1037,9 +1038,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       int addedCount = 0;
       int skippedCount = 0;
 
+      // fetchPlaylistEntries returns entries in YouTube's default (newest-first) order,
+      // so reversing is only needed when the setting is OFF (oldest first).
+      // Mirrors syncSavedPlaylists ordering.
       final effectiveEntries = settings.playlistReverseOrder
-          ? entries.reversed.toList()
-          : entries;
+          ? entries
+          : entries.reversed.toList();
 
       for (int i = 0; i < effectiveEntries.length; i++) {
         final entry = effectiveEntries[i];

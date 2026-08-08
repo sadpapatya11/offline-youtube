@@ -220,7 +220,8 @@ object YtDlpNativeManager {
     }
 
     fun isPlaylistUrl(url: String): Boolean {
-        return url.contains("list=") || url.contains("/playlist") || url.contains("/@") || url.contains("/channel/")
+        val lower = url.lowercase()
+        return lower.contains("list=") || lower.contains("/playlist") || lower.contains("/@") || lower.contains("/channel/") || lower.contains("/c/") || lower.contains("/user/")
     }
 
     fun startDownload(

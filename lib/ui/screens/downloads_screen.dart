@@ -3,9 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/trashed_video_item.dart';
 import '../../models/video_item.dart';
-import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
-import '../../providers/settings_provider.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
 import '../widgets/amoled_fast_scroller.dart';
@@ -112,7 +110,6 @@ class DownloadsScreenState extends State<DownloadsScreen> {
       BuildContext context, LibraryProvider library) async {
     if (_selectedVideoIds.isEmpty) return;
 
-    final count = _selectedVideoIds.length;
     final idsToDelete = _selectedVideoIds.toList();
     _exitSelectionMode();
 
@@ -502,9 +499,8 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                                     ),
                                     onDismissed: (direction) {
                                       final title = video.title;
-                                      context
-                                          .read<LibraryProvider>()
-                                          .deleteVideo(video);
+                                      final lib = context.read<LibraryProvider>();
+                                      final deleteFuture = lib.deleteVideo(video);
                                       ScaffoldMessenger.of(context)
                                           .hideCurrentSnackBar();
                                       ScaffoldMessenger.of(context).showSnackBar(
@@ -517,8 +513,9 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                                             label: 'Geri Al',
                                             textColor:
                                                 const Color(0xFF00E676),
-                                            onPressed: () {
-                                              final trashed = library
+                                            onPressed: () async {
+                                              await deleteFuture;
+                                              final trashed = lib
                                                   .trashedVideos
                                                   .firstWhere(
                                                 (t) => t.video.id == video.id,
@@ -526,7 +523,7 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                                                     video: video,
                                                     deletedAt: DateTime.now()),
                                               );
-                                              library.restoreVideo(trashed);
+                                              await lib.restoreVideo(trashed);
                                             },
                                           ),
                                         ),

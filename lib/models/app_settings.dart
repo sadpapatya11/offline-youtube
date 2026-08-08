@@ -1,3 +1,5 @@
+import '../services/storage_manager.dart';
+
 enum NetworkRestrictionMode {
   anyWifi, // Sadece Wi-Fi
   allNetworks, // Mobil Veri ve Wi-Fi (Tüm Ağlar)
@@ -16,7 +18,7 @@ class AppSettings {
     this.maxStorageLimitGB = 20,
     this.maxVideoDurationHours = 6,
     this.networkMode = NetworkRestrictionMode.allNetworks, // Varsayılan tüm ağlar (mobil veri + wifi)
-    this.customDownloadPath = '/storage/emulated/0/Download/.offlineyoutube',
+    this.customDownloadPath = StorageManager.defaultHiddenPath,
     this.autoDownloadOnPaste = true,
     this.playlistReverseOrder = true,
     this.savedPlaylists = const [],
@@ -58,7 +60,7 @@ class AppSettings {
         networkMode: NetworkRestrictionMode.values[
             (json['networkMode'] as int? ?? 1).clamp(0, NetworkRestrictionMode.values.length - 1)],
         customDownloadPath: json['customDownloadPath'] as String? ??
-            '/storage/emulated/0/Download/.offlineyoutube',
+            StorageManager.defaultHiddenPath,
         autoDownloadOnPaste: json['autoDownloadOnPaste'] as bool? ?? true,
         playlistReverseOrder: json['playlistReverseOrder'] as bool? ?? true,
         savedPlaylists: (json['savedPlaylists'] as List<dynamic>?)

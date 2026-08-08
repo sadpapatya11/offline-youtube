@@ -96,27 +96,6 @@ class NativeBridge {
     }
   }
 
-  Future<bool> resumeDownload({
-    required String taskId,
-    required String url,
-    required String title,
-    required String outputPath,
-  }) async {
-    try {
-      final result = await _methodChannel.invokeMethod<bool>(
-        'resumeDownload',
-        {
-          'taskId': taskId,
-          'url': url,
-          'title': title,
-          'outputPath': outputPath,
-        },
-      );
-      return result ?? false;
-    } catch (e) {
-      return false;
-    }
-  }
 
   Future<bool> cancelDownload(String taskId) async {
     try {

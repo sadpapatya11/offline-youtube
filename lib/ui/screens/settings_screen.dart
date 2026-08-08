@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_settings.dart';
 import '../../providers/library_provider.dart';
@@ -17,11 +18,25 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _isUpdatingYtDlp = false;
   bool _isIgnoringBatteryOpt = true;
+  String _versionInfo = 'Offline YouTube';
 
   @override
   void initState() {
     super.initState();
     _checkBatteryOpt();
+    _loadAppInfo();
+  }
+
+  Future<void> _loadAppInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _versionInfo =
+              'Offline YouTube v${info.version} (Build ${info.buildNumber})';
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _checkBatteryOpt() async {
@@ -495,7 +510,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 children: [
                   Text(
-                    'Offline YouTube v1.4.11 (Build 18)',
+                    _versionInfo,
                     style: TextStyle(
                       color: AmoledTheme.pureWhite.withValues(alpha: 0.6),
                       fontSize: 12,

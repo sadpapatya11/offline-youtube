@@ -5,8 +5,6 @@ import 'package:offlineyoutube/models/app_settings.dart';
 import 'package:offlineyoutube/models/download_task.dart';
 import 'package:offlineyoutube/models/video_item.dart';
 import 'package:offlineyoutube/providers/download_provider.dart';
-import 'package:offlineyoutube/providers/library_provider.dart';
-import 'package:offlineyoutube/providers/settings_provider.dart';
 import 'package:offlineyoutube/services/network_manager.dart';
 
 void main() {
@@ -202,6 +200,7 @@ void main() {
 
       // 5. Test Switch interaction on Settings
       final wifiSwitch = find.byType(Switch).first;
+      await tester.scrollUntilVisible(wifiSwitch, 100);
       await tester.tap(wifiSwitch);
       await tester.pump(const Duration(milliseconds: 200));
     });

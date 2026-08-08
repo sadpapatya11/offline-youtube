@@ -466,24 +466,6 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                 return;
               }
 
-              // İndirmeden kaynaklı hata (yt-dlp motor hatası / bot kontrolü vb.): Arka planda otomatik güncelle
-              if (!_isAutoUpdatingEngine) {
-                _isAutoUpdatingEngine = true;
-                NativeBridge.instance.updateYtDlp().then((updated) {
-                  _isAutoUpdatingEngine = false;
-                  if (updated) {
-                    task.status = DownloadStatus.queued;
-                    task.hadPreviousError = true;
-                    task.errorMessage = null;
-                    _saveTasksToStorage();
-                    notifyListeners();
-                    _triggerNextQueue(delayMs: 1500);
-                  }
-                }).catchError((_) {
-                  _isAutoUpdatingEngine = false;
-                });
-              }
-
               final isRateLimit = rawError.contains('429') ||
                   rawError.toLowerCase().contains('too many requests');
 
@@ -516,6 +498,55 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                 _saveTasksToStorage();
                 notifyListeners();
                 _triggerNextQueue(delayMs: 2000);
+                return;
+              }
+
+              // Normal denemeler tükendi: Motoru güncelle ve güncellenirse yeniden dene
+              if (!_isAutoUpdatingEngine) {
+                _isAutoUpdatingEngine = true;
+                task.status = DownloadStatus.fetchingMetadata;
+                task.speed = '';
+                task.errorMessage = 'İndirme motoru güncelleniyor...';
+                notifyListeners();
+
+                NativeBridge.instance.updateYtDlp().then((updated) {
+                  _isAutoUpdatingEngine = false;
+                  if (updated) {
+                    task.retryCount = 0;
+                    task.status = DownloadStatus.queued;
+                    task.hadPreviousError = true;
+                    task.errorMessage = null;
+                    if (_activeTaskId == taskId) {
+                      _activeTaskId = null;
+                    }
+                    _saveTasksToStorage();
+                    notifyListeners();
+                    _triggerNextQueue(delayMs: 1500);
+                  } else {
+                    task.status = DownloadStatus.error;
+                    task.hadPreviousError = true;
+                    task.speed = '';
+                    task.errorMessage = cleanErrorMessage(rawError);
+                    if (_activeTaskId == taskId) {
+                      _activeTaskId = null;
+                    }
+                    _saveTasksToStorage();
+                    notifyListeners();
+                    _triggerNextQueue(delayMs: 1500);
+                  }
+                }).catchError((_) {
+                  _isAutoUpdatingEngine = false;
+                  task.status = DownloadStatus.error;
+                  task.hadPreviousError = true;
+                  task.speed = '';
+                  task.errorMessage = cleanErrorMessage(rawError);
+                  if (_activeTaskId == taskId) {
+                    _activeTaskId = null;
+                  }
+                  _saveTasksToStorage();
+                  notifyListeners();
+                  _triggerNextQueue(delayMs: 1500);
+                });
               } else {
                 task.status = DownloadStatus.error;
                 task.hadPreviousError = true;
@@ -724,7 +755,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   static bool isPlaylistUrl(String url) {
     final lower = url.toLowerCase();
-    return lower.contains('list=') || lower.contains('/playlist');
+    return lower.contains('list=') ||
+        lower.contains('/playlist') ||
+        lower.contains('/@') ||
+        lower.contains('/channel/') ||
+        lower.contains('/c/') ||
+        lower.contains('/user/');
   }
 
   static bool isNetworkRelatedError(String error) {
@@ -992,8 +1028,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       int addedCount = 0;
       int skippedCount = 0;
 
-      for (int i = 0; i < entries.length; i++) {
-        final entry = entries[i];
+      final effectiveEntries = settings.playlistReverseOrder
+          ? entries.reversed.toList()
+          : entries;
+
+      for (int i = 0; i < effectiveEntries.length; i++) {
+        final entry = effectiveEntries[i];
         final videoUrl = (entry['url'] as String? ?? '').trim();
         var title = (entry['title'] as String? ?? '').trim();
         final duration = (entry['duration'] as num?)?.toInt() ?? 0;
@@ -1173,8 +1213,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       int runningTotalSec = refreshedDownloads.fold<int>(
           0, (sum, v) => sum + (v.durationSeconds ?? 0));
 
-      for (int i = allNewEntries.length - 1; i >= 0; i--) {
-        final entry = allNewEntries[i];
+      final effectiveNewEntries = settings.playlistReverseOrder
+          ? allNewEntries
+          : allNewEntries.reversed.toList();
+
+      for (int i = effectiveNewEntries.length - 1; i >= 0; i--) {
+        final entry = effectiveNewEntries[i];
         final videoUrl = (entry['url'] as String? ?? '').trim();
         var title = (entry['title'] as String? ?? '').trim();
         final duration = (entry['duration'] as num?)?.toInt() ?? 0;

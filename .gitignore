@@ -48,3 +48,5 @@ testsprite_tests/tmp/
 testsprite_tests/tmp/config.json
 .kotlin/
 android/.kotlin/
+.mcp.json
+*.mcp.json

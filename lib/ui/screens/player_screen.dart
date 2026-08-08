@@ -194,8 +194,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState(() {
         _currentSubtitleText = '';
       });
-    } else {
-      setState(() {});
     }
   }
 

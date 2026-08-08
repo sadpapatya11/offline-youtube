@@ -188,8 +188,11 @@ class StorageManager {
               } catch (_) {}
             }
 
+            final vid = VideoItem.extractVideoId(sourceUrl);
+            final stableId = (vid != null && vid.isNotEmpty) ? vid : fileName;
+
             videos.add(VideoItem(
-              id: entity.path.hashCode.toString(),
+              id: stableId,
               title: displayTitle,
               filePath: entity.path,
               fileSizeBytes: exactSize,
@@ -284,6 +287,8 @@ class StorageManager {
         uploader: item.uploader,
         downloadedAt: item.downloadedAt,
         thumbnailPath: destThumbPath,
+        subtitlePath: item.subtitlePath,
+        sourceUrl: item.sourceUrl,
       );
 
       final currentTrash = await loadTrashIndex();

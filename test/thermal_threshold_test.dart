@@ -1,49 +1,54 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:offlineyoutube/services/thermal_policy.dart';
 
 void main() {
   group('Thermal Management & Resource Policy Tests', () {
-    test('Thermal rate limits follow safety tiers', () {
-      const normalRate = '3.5M';
-      const moderateRate = '2.0M';
-      const severeRate = '1.0M';
-      const criticalRate = '500K';
-
-      expect(normalRate, equals('3.5M'));
-      expect(moderateRate, equals('2.0M'));
-      expect(severeRate, equals('1.0M'));
-      expect(criticalRate, equals('500K'));
+    test('Thermal rate limits adjust correctly based on ThermalTier', () {
+      expect(ThermalPolicy.getDownloadRateLimit(ThermalTier.nominal), equals('3.5M'));
+      expect(ThermalPolicy.getDownloadRateLimit(ThermalTier.fair), equals('2.0M'));
+      expect(ThermalPolicy.getDownloadRateLimit(ThermalTier.serious), equals('1.0M'));
+      expect(ThermalPolicy.getDownloadRateLimit(ThermalTier.critical), equals('500K'));
     });
 
-    test('FFmpeg Remuxing Thread limits do not exceed safe core thresholds', () {
-      const normalThreads = 2;
-      const warmThreads = 1;
-      const screenOffThreads = 1;
+    test('FFmpeg remuxing thread limits dynamically restrict on warm device or screen off', () {
+      // Normal state: 2 threads
+      expect(
+        ThermalPolicy.getRemuxingThreads(isScreenOff: false, isDeviceWarm: false),
+        equals(2),
+      );
 
-      expect(normalThreads, lessThanOrEqualTo(2));
-      expect(warmThreads, equals(1));
-      expect(screenOffThreads, equals(1));
+      // Warm state: throttled to 1 thread
+      expect(
+        ThermalPolicy.getRemuxingThreads(isScreenOff: false, isDeviceWarm: true),
+        equals(1),
+      );
+
+      // Screen off state: throttled to 1 thread to conserve power
+      expect(
+        ThermalPolicy.getRemuxingThreads(isScreenOff: true, isDeviceWarm: false),
+        equals(1),
+      );
+
+      // Both warm and screen off: throttled to 1 thread
+      expect(
+        ThermalPolicy.getRemuxingThreads(isScreenOff: true, isDeviceWarm: true),
+        equals(1),
+      );
     });
 
-    test('Speed & Size Regex parsers match standard yt-dlp outputs accurately', () {
-      final speedPattern = RegExp(r'at\s+([0-9.]+\s*[kKMmGg]?[iI]?[bB]/s)');
-      final totalSizePattern = RegExp(r'of\s+~?\s*([0-9.]+\s*[kKMmGg]?[iI]?[bB])');
-      final downloadedSizePattern =
-          RegExp(r'\[download\]\s+([0-9.]+\s*[kKMmGg]?[iI]?[bB])\s+of');
-
-      const testLine =
+    test('Speed, Size, and ETA extraction from standard yt-dlp console logs', () {
+      const line1 =
           '[download]   54.47MiB of ~ 120.50MiB at    3.25MiB/s ETA 00:20';
+      const line2 =
+          '[download]  100% of 45.20MiB in 00:12 at 3.75MiB/s';
 
-      final speedMatch = speedPattern.firstMatch(testLine);
-      expect(speedMatch, isNotNull);
-      expect(speedMatch!.group(1)!.trim(), equals('3.25MiB/s'));
+      expect(ThermalPolicy.extractSpeed(line1), equals('3.25MiB/s'));
+      expect(ThermalPolicy.extractTotalSize(line1), equals('120.50MiB'));
+      expect(ThermalPolicy.extractDownloadedSize(line1), equals('54.47MiB'));
+      expect(ThermalPolicy.extractEta(line1), equals('00:20'));
 
-      final totalMatch = totalSizePattern.firstMatch(testLine);
-      expect(totalMatch, isNotNull);
-      expect(totalMatch!.group(1)!.trim(), equals('120.50MiB'));
-
-      final downloadedMatch = downloadedSizePattern.firstMatch(testLine);
-      expect(downloadedMatch, isNotNull);
-      expect(downloadedMatch!.group(1)!.trim(), equals('54.47MiB'));
+      expect(ThermalPolicy.extractSpeed(line2), equals('3.75MiB/s'));
+      expect(ThermalPolicy.extractTotalSize(line2), equals('45.20MiB'));
     });
   });
 }

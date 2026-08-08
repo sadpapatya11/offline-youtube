@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../../models/app_settings.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/settings_provider.dart';
-import '../../services/native_bridge.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
 
@@ -30,6 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _pasteAndAutoDownload() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
+    if (!mounted) return;
     final text = data?.text?.trim();
     if (text != null && text.isNotEmpty && DownloadProvider.isValidYouTubeUrl(text)) {
       _urlController.text = text;
@@ -109,16 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final settingsProvider = context.watch<SettingsProvider>();
-    final libraryProvider = context.watch<LibraryProvider>();
-    final downloadProvider = context.watch<DownloadProvider>();
     final settings = settingsProvider.settings;
-
-    final usedGB = (libraryProvider.totalUsedBytes / (1024 * 1024 * 1024)).toStringAsFixed(2);
-    final maxGB = settings.maxStorageLimitGB;
-    final activeDownloads = downloadProvider.tasks.where((t) =>
-        t.status.name == 'downloading' ||
-        t.status.name == 'fetchingMetadata' ||
-        t.status.name == 'queued').toList();
 
     return Scaffold(
       appBar: AppBar(

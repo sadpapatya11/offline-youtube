@@ -265,7 +265,7 @@ object YtDlpNativeManager {
                 addOption("--concurrent-fragments", "1")
 
                 // 3. Storage I/O buffer to prevent high-frequency flash storage controller heating
-                addOption("--buffersize", "64K")
+                addOption("--buffer-size", "64K")
                 addOption("--http-chunk-size", "10M")
 
                 addOption("--no-mtime")

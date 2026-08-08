@@ -873,6 +873,26 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     required String url,
     required AppSettings settings,
   }) async {
+    final videoId = VideoItem.extractVideoId(url);
+    
+    // Check if already in queue
+    final isAlreadyInQueue = _tasks.any((t) {
+      final tId = VideoItem.extractVideoId(t.url);
+      return t.url == url || (videoId != null && tId == videoId);
+    });
+    if (isAlreadyInQueue) {
+      return 'Bu video zaten indirme listesinde mevcut.';
+    }
+
+    // Check if already downloaded
+    final downloadedVideos = await StorageManager.instance.scanDownloadedVideos();
+    final isAlreadyDownloaded = downloadedVideos.any((v) {
+      return v.sourceUrl == url || (videoId != null && v.youtubeId == videoId);
+    });
+    if (isAlreadyDownloaded) {
+      return 'Bu video zaten indirilmiş durumda.';
+    }
+
     final taskId = DateTime.now().millisecondsSinceEpoch.toString();
     final task = DownloadTask(
       id: taskId,
@@ -992,6 +1012,20 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         if (uploader.toLowerCase() == 'null') {
           uploader = '';
+        }
+
+        // Check if already in queue or downloaded
+        final entryVid = VideoItem.extractVideoId(videoUrl);
+        final isAlreadyInQueue = _tasks.any((t) {
+          final tVid = VideoItem.extractVideoId(t.url);
+          return t.url == videoUrl || (entryVid != null && tVid == entryVid);
+        });
+        final isAlreadyDownloaded = downloadedVideos.any((v) {
+          return v.sourceUrl == videoUrl || (entryVid != null && v.youtubeId == entryVid);
+        });
+
+        if (isAlreadyInQueue || isAlreadyDownloaded) {
+          continue; // Skip duplicate video
         }
 
         if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) {

@@ -469,19 +469,21 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
               final isRateLimit = rawError.contains('429') ||
                   rawError.toLowerCase().contains('too many requests');
 
-              if (isRateLimit && task.retryCount < 2) {
-                // YouTube rate limit (429) durumunda 6 saniye dinlen ve tekrar dene
+              if (isRateLimit && task.retryCount < 5) {
+                // YouTube rate limit (429) - Exponential backoff: 15s, 30s, 60s, 120s, 300s
+                final backoffSeconds = [15, 30, 60, 120, 300];
+                final waitSeconds = backoffSeconds[task.retryCount.clamp(0, backoffSeconds.length - 1)];
                 task.retryCount++;
                 task.status = DownloadStatus.queued;
                 task.hadPreviousError = true;
                 task.speed = '';
-                task.errorMessage = null;
+                task.errorMessage = '⏳ İstek limiti (429). ${waitSeconds}s sonra yeniden deneniyor... (${task.retryCount}/5)';
                 if (_activeTaskId == taskId) {
                   _activeTaskId = null;
                 }
                 _saveTasksToStorage();
                 notifyListeners();
-                _triggerNextQueue(delayMs: 6000);
+                _triggerNextQueue(delayMs: waitSeconds * 1000);
                 return;
               }
 
@@ -778,6 +780,9 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         lower.contains('unable to download api page') ||
         lower.contains('incompleteread') ||
         lower.contains('remotedisconnected') ||
+        lower.contains('ssl: handshake') ||
+        lower.contains('certificate verify failed') ||
+        lower.contains('err_empty_response') ||
         lower.contains('errno 7');
   }
 
@@ -806,6 +811,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     // Bot / Doğrulama
     if (result.toLowerCase().contains('sign in to confirm') ||
+        result.toLowerCase().contains('confirms you\'re not a bot') ||
+        result.toLowerCase().contains('botguard') ||
         result.toLowerCase().contains('bot')) {
       return 'YouTube bot doğrulaması istedi. Ayarlardan yt-dlp motorunu güncelleyin.';
     }
@@ -821,8 +828,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     // İstek Limiti
     if (result.toLowerCase().contains('429') ||
-        result.toLowerCase().contains('too many requests')) {
-      return 'YouTube istek sınırı aşıldı. Lütfen biraz bekleyin.';
+        result.toLowerCase().contains('too many requests') ||
+        result.toLowerCase().contains('http error 429') ||
+        result.toLowerCase().contains('rate limit')) {
+      return 'YouTube istek sınırı aşıldı. Uygulama otomatik yeniden deneyecek.';
     }
 
     // Depolama / Dosya Sistemi Hatası

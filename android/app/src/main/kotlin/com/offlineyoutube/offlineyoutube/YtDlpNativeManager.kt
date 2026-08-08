@@ -80,8 +80,10 @@ object YtDlpNativeManager {
                 addOption("--no-cache-dir")
                 addOption("--no-check-certificates")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
-                addOption("--extractor-args", "youtube:player_client=android,ios,web;lang=tr")
+                addOption("--user-agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
+                addOption("--extractor-args", "youtube:player_client=ios,android,mweb,web;player_skip=configs,webpage;lang=tr")
                 addOption("--geo-bypass-country", "TR")
+                addOption("--sleep-requests", "1.5")
                 if (isPlaylist) {
                     addOption("--flat-playlist")
                 } else {
@@ -116,8 +118,10 @@ object YtDlpNativeManager {
                 addOption("--no-cache-dir")
                 addOption("--no-check-certificates")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
-                addOption("--extractor-args", "youtube:player_client=android,ios,web;lang=tr")
+                addOption("--user-agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
+                addOption("--extractor-args", "youtube:player_client=ios,android,mweb,web;player_skip=configs,webpage;lang=tr")
                 addOption("--geo-bypass-country", "TR")
+                addOption("--sleep-requests", "1.0")
                 addOption("--flat-playlist")
                 addOption("-J")
             }
@@ -254,8 +258,11 @@ object YtDlpNativeManager {
                 addOption("--no-cache-dir")
                 addOption("--no-check-certificates")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
-                addOption("--extractor-args", "youtube:player_client=android,ios,web;lang=tr")
+                addOption("--user-agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
+                addOption("--extractor-args", "youtube:player_client=ios,android,mweb,web;player_skip=configs,webpage;lang=tr")
                 addOption("--geo-bypass-country", "TR")
+                addOption("--sleep-requests", "1.5")
+                addOption("--sleep-subtitles", "1")
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
                 // Safe formatting: 80-char max title + unique video id ensures 100% Android filesystem safety without slicing multi-byte UTF-8 chars
                 addOption("-o", "${outputDir.absolutePath}/%(title).80s [%(id)s].%(ext)s")
@@ -289,8 +296,8 @@ object YtDlpNativeManager {
                 
                 // 6. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
                 addOption("--limit-rate", dynamicRateLimit)
-                addOption("--sleep-interval", "1")
-                addOption("--max-sleep-interval", "3")
+                addOption("--sleep-interval", "2")
+                addOption("--max-sleep-interval", "4")
                 addOption("--retry-sleep", "5")
                 addOption("--retries", "10")
                 addOption("--fragment-retries", "10")

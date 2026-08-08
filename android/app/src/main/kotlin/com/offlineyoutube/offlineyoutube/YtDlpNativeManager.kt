@@ -256,8 +256,8 @@ object YtDlpNativeManager {
                 addOption("--extractor-args", "youtube:player_client=android,ios,web;lang=tr")
                 addOption("--geo-bypass-country", "TR")
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
-                // Safe formatting: 100-byte max title + unique video id ensures 100% Android filesystem safety
-                addOption("-o", "${outputDir.absolutePath}/%(title).100B [%(id)s].%(ext)s")
+                // Safe formatting: 80-char max title + unique video id ensures 100% Android filesystem safety without slicing multi-byte UTF-8 chars
+                addOption("-o", "${outputDir.absolutePath}/%(title).80s [%(id)s].%(ext)s")
                 addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
                 
                 // 1. Zero-Reencode FFmpeg Remuxing (Direct container stream copy with thread cap)
@@ -273,6 +273,7 @@ object YtDlpNativeManager {
 
                 // 4. Android filesystem compatibility (Strip illegal chars : " ? * < > | and restrict filename length)
                 addOption("--windows-filenames")
+                addOption("--trim-filenames", "100")
 
                 addOption("--no-mtime")
                 addOption("--continue")

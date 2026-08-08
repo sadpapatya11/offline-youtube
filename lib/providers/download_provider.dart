@@ -173,6 +173,17 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
               task.speed = '';
               task.errorMessage = null;
             }
+            // Tekrar eden (duplicate) görevleri kuyruğa ekleme
+            final taskVid = VideoItem.extractVideoId(task.url);
+            final isDuplicate = _tasks.any((existing) {
+              final existingVid = VideoItem.extractVideoId(existing.url);
+              return existing.url == task.url ||
+                  (taskVid != null && existingVid == taskVid);
+            });
+            if (isDuplicate) {
+              continue;
+            }
+
             _tasks.add(task);
           } catch (_) {}
         }
@@ -1137,7 +1148,14 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                     VideoItem.extractVideoId(t.url) == vid) ||
                 t.url == u);
 
-            if (!isAlreadyDownloaded && !isAlreadyInQueue) {
+            final isAlreadyInBatch = allNewEntries.any((e) {
+              final eUrl = (e['url'] as String? ?? '').trim();
+              final eVid = VideoItem.extractVideoId(eUrl) ??
+                  (e['id'] as String? ?? '').trim();
+              return (vid.isNotEmpty && eVid == vid) || (u.isNotEmpty && eUrl == u);
+            });
+
+            if (!isAlreadyDownloaded && !isAlreadyInQueue && !isAlreadyInBatch) {
               allNewEntries.add(entry);
             }
           }

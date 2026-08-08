@@ -63,6 +63,7 @@ class DownloadForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        ThermalManager.init(this)
         createNotificationChannel()
     }
 
@@ -150,6 +151,11 @@ class DownloadForegroundService : Service() {
                 url = url,
                 outputDir = outputDir,
                 onProgress = { progress, eta, speed, totalSize, downloadedSize ->
+                    // If download is near completion / post-processing, release WifiLock early to cool RF modem
+                    if (progress >= 99f) {
+                        releaseWifiLockOnly()
+                    }
+
                     val now = System.currentTimeMillis()
                     if (progress >= 100f || now - lastNotificationTime >= 1000L) {
                         lastNotificationTime = now
@@ -235,7 +241,7 @@ class DownloadForegroundService : Service() {
 
             idleTimeoutJob?.cancel()
             idleTimeoutJob = serviceScope.launch {
-                delay(45000L) // 45 saniye bekle
+                delay(30000L) // 30 saniye bekle
                 if (activeDownloadJobs.isEmpty()) {
                     Log.i(TAG, "No active downloads within grace period. Stopping foreground service.")
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -314,7 +320,7 @@ class DownloadForegroundService : Service() {
                 }
             }
             if (wakeLock?.isHeld != true) {
-                wakeLock?.acquire(2 * 60 * 60 * 1000L) // 2 hours max safety
+                wakeLock?.acquire(30 * 60 * 1000L) // 30 mins safety max
             }
         } catch (e: Exception) {
             Log.e(TAG, "WakeLock acquire error: ${e.message}")
@@ -335,6 +341,19 @@ class DownloadForegroundService : Service() {
         }
     }
 
+    private fun releaseWifiLockOnly() {
+        try {
+            wifiLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                    Log.i(TAG, "WifiLock released early for modem thermal cooling.")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "WifiLock release error: ${e.message}")
+        }
+    }
+
     private fun releaseLocksIfIdle() {
         try {
             wakeLock?.let {
@@ -343,13 +362,7 @@ class DownloadForegroundService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "WakeLock release error: ${e.message}")
         }
-        try {
-            wifiLock?.let {
-                if (it.isHeld) it.release()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "WifiLock release error: ${e.message}")
-        }
+        releaseWifiLockOnly()
     }
 
     private fun formatEta(seconds: Long): String {

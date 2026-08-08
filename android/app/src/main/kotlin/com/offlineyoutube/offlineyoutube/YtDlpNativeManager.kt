@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.regex.Pattern
 
 object YtDlpNativeManager {
     private const val TAG = "YtDlpNativeManager"
@@ -22,9 +23,15 @@ object YtDlpNativeManager {
     private val activeTasks = ConcurrentHashMap<String, String>() // taskId -> taskId
     private val intentionallyStoppedTasks = ConcurrentHashMap.newKeySet<String>()
 
+    // Pre-compiled regex patterns to eliminate repeated pattern compilation and GC overhead
+    private val SPEED_PATTERN = Pattern.compile("at\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB]/s)")
+    private val TOTAL_SIZE_PATTERN = Pattern.compile("of\\s+~?\\s*([0-9.]+\\s*[kKMmGg]?[iI]?[bB])")
+    private val DOWNLOADED_SIZE_PATTERN = Pattern.compile("\\[download\\]\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB])\\s+of")
+
     fun init(context: Context) {
         if (isInitialized) return
         try {
+            ThermalManager.init(context.applicationContext)
             YoutubeDL.getInstance().init(context.applicationContext)
             try {
                 FFmpeg.getInstance().init(context.applicationContext)
@@ -37,7 +44,7 @@ object YtDlpNativeManager {
                 Log.w(TAG, "Aria2c init warning: ${e.message}")
             }
             isInitialized = true
-            Log.i(TAG, "YtDlpNativeManager initialized successfully")
+            Log.i(TAG, "YtDlpNativeManager initialized successfully with ThermalManager")
 
             // Auto-update yt-dlp binary in background
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
@@ -237,6 +244,9 @@ object YtDlpNativeManager {
             activeTasks[taskId] = taskId
             intentionallyStoppedTasks.remove(taskId)
 
+            val ffmpegThreads = ThermalManager.getRecommendedFfmpegThreads()
+            val dynamicRateLimit = ThermalManager.getRecommendedLimitRate()
+
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
@@ -244,33 +254,48 @@ object YtDlpNativeManager {
                 addOption("--extractor-args", "youtube:lang=tr")
                 addOption("--geo-bypass-country", "TR")
                 addOption("--write-thumbnail")
-                addOption("--convert-thumbnails", "jpg")
                 addOption("-o", "${outputDir.absolutePath}/%(title)s.%(ext)s")
                 addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
+                
+                // Zero-Reencode FFmpeg Remuxing (Pure container copy with thread-capping)
+                addOption("--merge-output-format", "mp4")
+                addOption("--postprocessor-args", "ffmpeg:-threads $ffmpegThreads -c copy")
+                
+                // Single fragment stream to prevent modem IC burst heat & storage I/O flood
+                addOption("--concurrent-fragments", "1")
+
                 addOption("--no-mtime")
                 addOption("--continue")
                 addOption("--ignore-errors")
                 addOption("--no-playlist") // Her video tek tek bağımsız indirilir
-                // Türkçe Altyazı Desteği (Varsa Türkçe altyazı veya otomatik Türkçe çeviri indir)
+                
+                // Türkçe Altyazı Desteği
                 addOption("--write-subs")
                 addOption("--write-auto-subs")
                 addOption("--sub-lang", "tr,tr-orig,tr-TR,en")
                 addOption("--sub-format", "vtt/srt/best")
-                // Anti-Ban & Doğal Video İzleme Akışı
-                addOption("--limit-rate", "3.5M") // ~3.5 MB/s doğal insan akış hızı
-                addOption("--sleep-interval", "2") // İstekler arası 2 saniye dinlenme
+                
+                // Termal ve Anti-Ban Uyumlu Dinamik Hız Kısıtı
+                addOption("--limit-rate", dynamicRateLimit)
+                addOption("--sleep-interval", "2") // İstekler arası dinlenme
                 addOption("--retries", "10")
                 addOption("--fragment-retries", "10")
             }
 
             var lastProgressEmitTime = 0L
+            var lastProgressPercent = -1f
+
             val response: YoutubeDLResponse = YoutubeDL.getInstance().execute(
                 request,
                 taskId
             ) { progress, etaInSeconds, line ->
                 val now = System.currentTimeMillis()
-                if (progress >= 100f || now - lastProgressEmitTime >= 500L) {
+                val delta = Math.abs(progress - lastProgressPercent)
+                
+                // Throttled native callback: Execute regex & string allocations only on meaningful delta or time interval
+                if (progress >= 100f || (now - lastProgressEmitTime >= 800L && delta >= 0.5f) || (now - lastProgressEmitTime >= 2500L)) {
                     lastProgressEmitTime = now
+                    lastProgressPercent = progress
                     val speed = parseSpeed(line)
                     val totalSize = parseTotalSize(line)
                     val downloadedSize = parseDownloadedSize(line)
@@ -303,23 +328,20 @@ object YtDlpNativeManager {
     }
 
     private fun parseSpeed(line: String?): String {
-        if (line == null) return ""
-        val regex = "at\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB]/s)".toRegex()
-        val match = regex.find(line)
-        return match?.groupValues?.get(1) ?: ""
+        if (line.isNullOrEmpty()) return ""
+        val m = SPEED_PATTERN.matcher(line)
+        return if (m.find()) m.group(1) ?: "" else ""
     }
 
     private fun parseTotalSize(line: String?): String {
-        if (line == null) return ""
-        val regex = "of\\s+~?\\s*([0-9.]+\\s*[kKMmGg]?[iI]?[bB])".toRegex()
-        val match = regex.find(line)
-        return match?.groupValues?.get(1) ?: ""
+        if (line.isNullOrEmpty()) return ""
+        val m = TOTAL_SIZE_PATTERN.matcher(line)
+        return if (m.find()) m.group(1) ?: "" else ""
     }
 
     private fun parseDownloadedSize(line: String?): String {
-        if (line == null) return ""
-        val regex = "\\[download\\]\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB])\\s+of".toRegex()
-        val match = regex.find(line)
-        return match?.groupValues?.get(1) ?: ""
+        if (line.isNullOrEmpty()) return ""
+        val m = DOWNLOADED_SIZE_PATTERN.matcher(line)
+        return if (m.find()) m.group(1) ?: "" else ""
     }
 }

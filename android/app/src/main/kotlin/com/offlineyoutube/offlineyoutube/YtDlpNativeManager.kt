@@ -23,7 +23,7 @@ object YtDlpNativeManager {
     private val activeTasks = ConcurrentHashMap<String, String>() // taskId -> taskId
     private val intentionallyStoppedTasks = ConcurrentHashMap.newKeySet<String>()
 
-    // Pre-compiled regex patterns to eliminate repeated pattern compilation and GC overhead
+    // Pre-compiled static regex patterns to eliminate runtime pattern allocations and GC churn
     private val SPEED_PATTERN = Pattern.compile("at\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB]/s)")
     private val TOTAL_SIZE_PATTERN = Pattern.compile("of\\s+~?\\s*([0-9.]+\\s*[kKMmGg]?[iI]?[bB])")
     private val DOWNLOADED_SIZE_PATTERN = Pattern.compile("\\[download\\]\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB])\\s+of")
@@ -36,15 +36,15 @@ object YtDlpNativeManager {
             try {
                 FFmpeg.getInstance().init(context.applicationContext)
             } catch (e: Exception) {
-                Log.w(TAG, "FFmpeg init warning: ${e.message}")
+                Log.w(TAG, "FFmpeg init notice: ${e.message}")
             }
             try {
                 Aria2c.getInstance().init(context.applicationContext)
             } catch (e: Exception) {
-                Log.w(TAG, "Aria2c init warning: ${e.message}")
+                Log.w(TAG, "Aria2c init notice: ${e.message}")
             }
             isInitialized = true
-            Log.i(TAG, "YtDlpNativeManager initialized successfully with ThermalManager")
+            Log.i(TAG, "YtDlpNativeManager initialized successfully")
 
             // Auto-update yt-dlp binary in background
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
@@ -253,31 +253,35 @@ object YtDlpNativeManager {
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
                 addOption("--extractor-args", "youtube:lang=tr")
                 addOption("--geo-bypass-country", "TR")
-                addOption("--write-thumbnail")
+                addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
                 addOption("-o", "${outputDir.absolutePath}/%(title)s.%(ext)s")
                 addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
                 
-                // Zero-Reencode FFmpeg Remuxing (Pure container copy with thread-capping)
+                // 1. Zero-Reencode FFmpeg Remuxing (Direct container stream copy with thread cap)
                 addOption("--merge-output-format", "mp4")
                 addOption("--postprocessor-args", "ffmpeg:-threads $ffmpegThreads -c copy")
                 
-                // Single fragment stream to prevent modem IC burst heat & storage I/O flood
+                // 2. Single fragment stream to eliminate Wi-Fi modem saturation & multi-thread CPU bursts
                 addOption("--concurrent-fragments", "1")
+
+                // 3. Storage I/O buffer to prevent high-frequency flash storage controller heating
+                addOption("--buffersize", "64K")
+                addOption("--http-chunk-size", "10M")
 
                 addOption("--no-mtime")
                 addOption("--continue")
                 addOption("--ignore-errors")
-                addOption("--no-playlist") // Her video tek tek bağımsız indirilir
+                addOption("--no-playlist")
                 
-                // Türkçe Altyazı Desteği
+                // 4. Türkçe Altyazı (Sidecar .vtt/.srt files - no video re-encoding)
                 addOption("--write-subs")
                 addOption("--write-auto-subs")
                 addOption("--sub-lang", "tr,tr-orig,tr-TR,en")
                 addOption("--sub-format", "vtt/srt/best")
                 
-                // Termal ve Anti-Ban Uyumlu Dinamik Hız Kısıtı
+                // 5. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
                 addOption("--limit-rate", dynamicRateLimit)
-                addOption("--sleep-interval", "2") // İstekler arası dinlenme
+                addOption("--sleep-interval", "2")
                 addOption("--retries", "10")
                 addOption("--fragment-retries", "10")
             }
@@ -292,13 +296,19 @@ object YtDlpNativeManager {
                 val now = System.currentTimeMillis()
                 val delta = Math.abs(progress - lastProgressPercent)
                 
-                // Throttled native callback: Execute regex & string allocations only on meaningful delta or time interval
+                // Source-level native callback throttling: parse strings ONLY on meaningful progress or timeout
                 if (progress >= 100f || (now - lastProgressEmitTime >= 800L && delta >= 0.5f) || (now - lastProgressEmitTime >= 2500L)) {
                     lastProgressEmitTime = now
                     lastProgressPercent = progress
-                    val speed = parseSpeed(line)
-                    val totalSize = parseTotalSize(line)
-                    val downloadedSize = parseDownloadedSize(line)
+                    
+                    var speed = ""
+                    var totalSize = ""
+                    var downloadedSize = ""
+                    if (line != null && line.contains("[download]")) {
+                        speed = parseSpeed(line)
+                        totalSize = parseTotalSize(line)
+                        downloadedSize = parseDownloadedSize(line)
+                    }
                     onProgress(progress, etaInSeconds, speed, totalSize, downloadedSize)
                 }
             }

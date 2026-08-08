@@ -235,6 +235,10 @@ class MainActivity : FlutterActivity() {
                     }
                 }
 
+                "getThermalDiagnostics" -> {
+                    result.success(ThermalManager.getDiagnosticsReport())
+                }
+
                 else -> result.notImplemented()
             }
         }

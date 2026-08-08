@@ -189,5 +189,16 @@ class NativeBridge {
       return 0;
     }
   }
+
+  Future<Map<String, dynamic>> getThermalDiagnostics() async {
+    try {
+      final result = await _methodChannel
+          .invokeMapMethod<String, dynamic>('getThermalDiagnostics');
+      return result ?? {};
+    } catch (e) {
+      return {};
+    }
+  }
 }
+
 

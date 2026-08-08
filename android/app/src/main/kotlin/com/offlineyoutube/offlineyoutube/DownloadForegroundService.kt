@@ -22,7 +22,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.abs
 
 class DownloadForegroundService : Service() {
 
@@ -44,11 +43,11 @@ class DownloadForegroundService : Service() {
         const val EXTRA_OUTPUT_PATH = "extra_output_path"
 
         // Event listener for Flutter
+        // FIX(visibility): IO thread'lerinde okunuyor, MainActivity main
+        // thread'inde yazılıyor — @Volatile olmadan güncel olmayan null okunup
+        // event'ler kaybolabiliyordu.
+        @Volatile
         var eventCallback: ((Map<String, Any?>) -> Unit)? = null
-
-        fun getNotificationId(taskId: String): Int {
-            return (abs(taskId.hashCode()) % 100000) + 1000
-        }
     }
 
     private val serviceJob = Job()
@@ -74,7 +73,26 @@ class DownloadForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        val taskId = intent?.getStringExtra(EXTRA_TASK_ID) ?: return START_NOT_STICKY
+        // FIX(restart): Sistem servisi öldürüp (memory pressure) START_STICKY ile
+        // yeniden başlattığında intent null olabilir. O noktada startForeground()
+        // çağrılmadan dönmek RemoteServiceException'a ("did not then call
+        // startForeground") yol açıyor ve uygulama çöküyordu. Burada servisi
+        // tekrar foreground yap; 30 sn içinde Flutter bağlanıp kuyruğu devralır,
+        // olmazsa idle timeout servisi kapatır.
+        if (intent == null || intent.getStringExtra(EXTRA_TASK_ID).isNullOrEmpty()) {
+            startInForeground(
+                buildNotification(
+                    title = "Offline YouTube",
+                    content = "İndirme sürdürülüyor...",
+                    progress = 0,
+                    indeterminate = true
+                )
+            )
+            checkGracefulStop()
+            return START_STICKY
+        }
+
+        val taskId = intent.getStringExtra(EXTRA_TASK_ID) ?: ""
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "Video"
         val url = intent.getStringExtra(EXTRA_URL) ?: ""
         val outputPath = intent.getStringExtra(EXTRA_OUTPUT_PATH) ?: ""
@@ -138,7 +156,13 @@ class DownloadForegroundService : Service() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         var lastNotificationTime = 0L
 
-        val job = serviceScope.launch {
+        serviceScope.launch {
+            // FIX(race): Görevi en başta kaydet. Önceden kayıt launch'tan SONRA
+            // (main thread'de) yapılıyordu; çok hızlı başarısızlıkta onError
+            // önce çalışıp checkGracefulStop() boş map gördüğü için idle timeout
+            // hiç ateşlenmiyor, servis sonsuza dek foreground'da kalıyordu.
+            activeDownloadJobs[taskId] = coroutineContext[Job] ?: Job()
+
             emitEvent(mapOf(
                 "taskId" to taskId,
                 "type" to "started",
@@ -151,6 +175,12 @@ class DownloadForegroundService : Service() {
                 url = url,
                 outputDir = outputDir,
                 onProgress = { progress, eta, speed, totalSize, downloadedSize ->
+                    // FIX(wakelock): 30 dk'lık timeout'lı wake lock uzun
+                    // indirmelerde erken serbest kalıyordu; her progress'te
+                    // tutulmuyorsa yeniden al (99%+ wifi lock bilinçli
+                    // bırakıldıysa geri alma).
+                    reAcquireLocksIfDropped(progress)
+
                     // If download is near completion / post-processing, release WifiLock early to cool RF modem
                     if (progress >= 99f) {
                         releaseWifiLockOnly()
@@ -199,7 +229,6 @@ class DownloadForegroundService : Service() {
                 }
             )
         }
-        activeDownloadJobs[taskId] = job
     }
 
     private fun pauseDownloadTask(taskId: String) {
@@ -354,6 +383,29 @@ class DownloadForegroundService : Service() {
         }
     }
 
+    // FIX(wakelock): acquireLocksIfNeeded() yalnızca yeni görev başlarken
+    // çağrılıyordu; 30 dk'lık timeout sonrası kilitsiz geçen uzun indirmeler
+    // Doze altında kesilebiliyordu. Progress callback bu metodu her çağrışta
+    // düşen kilitleri yeniden alır.
+    private fun reAcquireLocksIfDropped(progress: Float) {
+        try {
+            if (wakeLock?.isHeld != true) {
+                wakeLock?.acquire()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "WakeLock re-acquire error: ${e.message}")
+        }
+        // WifiLock 99%+ iken termal soğutma için bilinçli bırakıldı; altına
+        // düşüldüyse geri al.
+        if (progress < 99f && wifiLock?.isHeld != true) {
+            try {
+                wifiLock?.acquire()
+            } catch (e: Exception) {
+                Log.e(TAG, "WifiLock re-acquire error: ${e.message}")
+            }
+        }
+    }
+
     private fun releaseLocksIfIdle() {
         try {
             wakeLock?.let {
@@ -373,9 +425,21 @@ class DownloadForegroundService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        // FIX(orphan): Aktif yt-dlp süreçlerini durdur. Önceden yalnızca job
+        // iptal ediliyordu; job.cancel() bloklayan YoutubeDL.execute() çağrısını
+        // kesemiyor, python çocuk süreçleri servis öldükten sonra bile bildirimsiz
+        // ve kilitsiz indirmeye devam ediyordu.
+        for (taskId in activeDownloadJobs.keys) {
+            try {
+                YtDlpNativeManager.stopDownload(taskId)
+            } catch (e: Exception) {
+                Log.e(TAG, "stopDownload on destroy error: ${e.message}")
+            }
+        }
+        activeDownloadJobs.clear()
         serviceJob.cancel()
         releaseLocksIfIdle()
+        super.onDestroy()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

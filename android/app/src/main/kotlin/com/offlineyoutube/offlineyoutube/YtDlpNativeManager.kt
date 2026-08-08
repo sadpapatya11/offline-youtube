@@ -22,11 +22,22 @@ object YtDlpNativeManager {
     private var isInitialized = false
     private val activeTasks = ConcurrentHashMap<String, String>() // taskId -> taskId
     private val intentionallyStoppedTasks = ConcurrentHashMap.newKeySet<String>()
+    // FIX(race): Her görev için "durdurma nesli" sayacı. stopDownload() sayacı
+    // artırır; startDownload'ın catch bloğu, yürütme başladıktan sonra sayacın
+    // değişip değişmediğine bakarak gerçek hatayı bilinçli durdurmadan ayırt
+    // eder. Önceden yalnızca intentionallyStoppedTasks bayrağı kullanılıyordu;
+    // "duraklat -> hızlı devam ettir" durumunda bayrak erken silindiğinden eski
+    // coroutine'in catch'i aktif görev için SAHTE "error" eventi üretiyordu.
+    private val stopGeneration = ConcurrentHashMap<String, Int>()
 
     // Pre-compiled static regex patterns to eliminate runtime pattern allocations and GC churn
     private val SPEED_PATTERN = Pattern.compile("at\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB]/s)")
     private val TOTAL_SIZE_PATTERN = Pattern.compile("of\\s+~?\\s*([0-9.]+\\s*[kKMmGg]?[iI]?[bB])")
-    private val DOWNLOADED_SIZE_PATTERN = Pattern.compile("\\[download\\]\\s+([0-9.]+\\s*[kKMmGg]?[iI]?[bB])\\s+of")
+    // FIX(size): Eski desen hiç eşleşmiyordu — "[download]" sonrası gelen token
+    // boyut değil YÜZDE'dir ("45.5% of 10.00MiB ..."). İndirilen miktar artık
+    // yüzde + toplam boyuttan hesaplanıyor (parseDownloadedSize).
+    private val DOWNLOADED_PERCENT_PATTERN = Pattern.compile("\\[download\\]\\s+([0-9.]+)%")
+    private val SIZE_VALUE_PATTERN = Pattern.compile("([0-9.]+)\\s*([kKmMgG]?[iI]?[bB])")
 
     fun init(context: Context) {
         if (isInitialized) return
@@ -236,6 +247,10 @@ object YtDlpNativeManager {
         onComplete: (String) -> Unit,
         onError: (Exception) -> Unit
     ) {
+        // FIX(race): Bu yürütmenin neslini try bloğu DIŞINDA yakala — catch
+        // bloğunda da erişilmesi gerekiyor (Kotlin try değişkenlerini catch'e
+        // taşımaz).
+        val executionGeneration = stopGeneration[taskId] ?: 0
         try {
             if (!outputDir.exists()) {
                 outputDir.mkdirs()
@@ -266,7 +281,12 @@ object YtDlpNativeManager {
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
                 // Safe formatting: 50-char max title (50 chars * up to 4 bytes/char = 200 bytes) + unique video id keeps the full filename, incl. sidecar suffixes like [id].f137.mp4.part, under Android's 255-byte filename limit without slicing multi-byte UTF-8 chars
                 addOption("-o", "${outputDir.absolutePath}/%(title).50s [%(id)s].%(ext)s")
-                addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
+                // FIX(format): iOS client çoğunlukla mp4 (avc1/mp4a) servis eder;
+                // önce bu kombinasyonu hedefle. Eski desende "bestvideo[ext=mp4]"
+                // avc1 olmayan (vp9) mp4'leri de seçebiliyor, o da ffmpeg merge
+                // sırasında -c copy ile mp4 çıktısına dönüştürülemeyip sessizce
+                // başarısız olabiliyordu.
+                addOption("-f", "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a][acodec^=mp4a]/best[ext=mp4]/best")
                 
                 // 1. Zero-Reencode FFmpeg Remuxing (Direct container stream copy with thread cap)
                 addOption("--merge-output-format", "mp4")
@@ -325,7 +345,7 @@ object YtDlpNativeManager {
                     if (line != null && line.contains("[download]")) {
                         speed = parseSpeed(line)
                         totalSize = parseTotalSize(line)
-                        downloadedSize = parseDownloadedSize(line)
+                        downloadedSize = parseDownloadedSize(line, totalSize)
                     }
                     onProgress(progress, etaInSeconds, speed, totalSize, downloadedSize)
                 }
@@ -335,7 +355,10 @@ object YtDlpNativeManager {
             onComplete(response.out ?: "İndirme Tamamlandı")
         } catch (e: Exception) {
             activeTasks.remove(taskId)
-            if (intentionallyStoppedTasks.remove(taskId)) {
+            // FIX(race): Nesil değiştiyse (durdurma olduysa) veya bayrak hâlâ
+            // duruyorsa bu bilinçli bir duraklatma/iptaldir — hata bildirme.
+            val generationChanged = (stopGeneration[taskId] ?: 0) != executionGeneration
+            if (generationChanged || intentionallyStoppedTasks.remove(taskId)) {
                 Log.i(TAG, "Task $taskId was intentionally paused/stopped. Suppressing error callback.")
                 return
             }
@@ -346,6 +369,9 @@ object YtDlpNativeManager {
 
     fun stopDownload(taskId: String) {
         try {
+            // FIX(race): Nesli artır — çalışmakta olan yürütme kendi catch'inde
+            // neslin değiştiğini görüp hata bildirimini bastırır.
+            stopGeneration[taskId] = (stopGeneration[taskId] ?: 0) + 1
             intentionallyStoppedTasks.add(taskId)
             YoutubeDL.getInstance().destroyProcessById(taskId)
             activeTasks.remove(taskId)
@@ -367,9 +393,41 @@ object YtDlpNativeManager {
         return if (m.find()) m.group(1) ?: "" else ""
     }
 
-    private fun parseDownloadedSize(line: String?): String {
+    // FIX(size): "[download]  45.5% of 10.00MiB ..." satırından yüzdeyi okuyup
+    // indirilen miktarı toplam boyuttan bayt olarak hesaplar.
+    private fun parseDownloadedSize(line: String?, totalSizeText: String?): String {
         if (line.isNullOrEmpty()) return ""
-        val m = DOWNLOADED_SIZE_PATTERN.matcher(line)
-        return if (m.find()) m.group(1) ?: "" else ""
+        val m = DOWNLOADED_PERCENT_PATTERN.matcher(line)
+        if (!m.find()) return ""
+        val percent = m.group(1).toDoubleOrNull() ?: return ""
+        val totalBytes = parseSizeToBytes(totalSizeText)
+        if (totalBytes <= 0L) return ""
+        return formatBytes((totalBytes * percent / 100.0).toLong())
+    }
+
+    private fun parseSizeToBytes(text: String?): Long {
+        if (text.isNullOrEmpty()) return 0L
+        val m = SIZE_VALUE_PATTERN.matcher(text)
+        if (!m.find()) return 0L
+        val value = m.group(1).toDoubleOrNull() ?: return 0L
+        val unit = m.group(2)?.lowercase() ?: ""
+        return when {
+            unit.endsWith("gib") -> (value * 1024 * 1024 * 1024).toLong()
+            unit.endsWith("mib") -> (value * 1024 * 1024).toLong()
+            unit.endsWith("kib") -> (value * 1024).toLong()
+            unit.endsWith("gb") -> (value * 1000 * 1000 * 1000).toLong()
+            unit.endsWith("mb") -> (value * 1000 * 1000).toLong()
+            unit.endsWith("kb") -> (value * 1000).toLong()
+            else -> value.toLong()
+        }
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        return when {
+            bytes >= 1024L * 1024 * 1024 -> String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024))
+            bytes >= 1024L * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024))
+            bytes >= 1024L -> String.format("%.1f KB", bytes / 1024.0)
+            else -> "$bytes B"
+        }
     }
 }

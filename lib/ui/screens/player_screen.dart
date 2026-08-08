@@ -43,6 +43,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _showControls = true;
   String? _error;
 
+  // FIX(leak): Yükleme nesli sayacı — hızlı Sonraki/Önceki dokunuşlarında
+  // eski yüklemeler kendi controller'larını dispose edip geri döner; böylece
+  // çift dispose ve aynı anda iki videonun ses vermesi önlenir.
+  int _loadGeneration = 0;
+
   // Hız Yönetimi
   double _baseSpeed = 1.0;
   bool _isHolding2X = false;
@@ -85,6 +90,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _loadAndPlayCurrentVideo() async {
+    // FIX(leak): Her çağrı yeni bir nesil üretir; yalnızca en güncel nesil
+    // controller'ı atayabilir. Eski nesil (hızlı Sonraki/Önceki ya da geri
+    // dönüş) kendi controller'ını dispose edip sessizce sonlanır.
+    final generation = ++_loadGeneration;
+
     _hasAutoAdvanced = false;
     _error = null;
     _isInitialized = false;
@@ -106,7 +116,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
+    // FIX(leak): Controller'ı try dışında tutuyoruz ki herhangi bir adım
+    // hata verirse bile dispose edebilelim.
+    VideoPlayerController? newController;
+
     try {
+      // Bu nesil hâlâ geçerli değilse mevcut controller'a dokunma.
+      if (generation != _loadGeneration) return;
+
       final oldController = _controller;
       if (oldController != null) {
         oldController.removeListener(_onPlayerTick);
@@ -116,8 +133,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       final savedPos = await PlaybackManager.instance.getPosition(vid.id);
 
-      final newController = VideoPlayerController.file(file);
+      newController = VideoPlayerController.file(file);
       await newController.initialize();
+
+      // FIX(leak): Initialize sırasında kullanıcı başka videoya geçtiyse veya
+      // ekrandan ayrıldıysa bu controller'ı çalıştırmadan at.
+      if (!mounted || generation != _loadGeneration) {
+        await newController.dispose();
+        return;
+      }
+
       newController.addListener(_onPlayerTick);
 
       final totalDuration = newController.value.duration.inMilliseconds;
@@ -129,16 +154,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
       await newController.setPlaybackSpeed(_baseSpeed);
       await newController.play();
 
-      if (mounted) {
-        setState(() {
-          _controller = newController;
-          _isInitialized = true;
-        });
+      if (!mounted || generation != _loadGeneration) {
+        // FIX(leak): Oyuncu başlatılırken geri tuşuna basıldı — arka planda
+        // ses veren, UI'sız bir video asla bırakma.
+        await newController.dispose();
+        return;
       }
+
+      setState(() {
+        _controller = newController;
+        _isInitialized = true;
+      });
 
       await _loadSubtitlesFor(vid);
     } catch (e) {
-      if (mounted) {
+      // FIX(leak): Controller oluşturuldu ama _controller'a atanamadan hata
+      // oluştuysa burada dispose et (ör. initialize() fırlattı).
+      await newController?.dispose();
+      if (mounted && generation == _loadGeneration) {
         setState(() {
           _error = 'Video oynatılırken hata oluştu: ${e.toString()}';
         });

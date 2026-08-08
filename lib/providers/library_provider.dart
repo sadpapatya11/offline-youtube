@@ -17,6 +17,19 @@ class LibraryProvider extends ChangeNotifier {
 
   LibraryProvider() {
     refresh();
+    _bootstrap();
+  }
+
+  // FIX(startup-race): İlk tarama, indirme klasörü oluşturulmadan önce çalışıp
+  // boş liste döndürebiliyordu (SettingsProvider._init ile yarış). Klasör
+  // hazır olunca kütüphaneyi bir kez daha tara.
+  Future<void> _bootstrap() async {
+    try {
+      await StorageManager.instance.initDirectory();
+      await refresh();
+    } catch (_) {
+      // Init hataları sessizce geçilir; kullanıcı elle yenileyebilir.
+    }
   }
 
   Future<void> refresh() async {

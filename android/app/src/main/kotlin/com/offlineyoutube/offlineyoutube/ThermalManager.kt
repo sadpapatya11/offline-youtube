@@ -7,7 +7,6 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import android.os.PowerManager
-import android.os.Process
 import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -35,18 +34,16 @@ object ThermalManager {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn.set(false)
-                    // Set thread priority to background to enforce Linux CPU scheduler onto Efficiency (LITTLE) cores
-                    try {
-                        Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-                    } catch (_: Exception) {}
-                    Log.i(TAG, "Screen OFF detected -> Background priority enforced (EAS efficiency core bias)")
+                    // FIX(thread-priority): BroadcastReceiver ana (UI) thread'de
+                    // çalışır — Process.setThreadPriority() burada TÜM uygulamanın
+                    // UI thread'ini düşürüyordu, indirme thread'lerini değil. UI
+                    // olay teslimini yavaşlatıyor ve gerçek bir termal fayda
+                    // sağlamıyordu; kaldırıldı.
+                    Log.i(TAG, "Screen OFF detected")
                 }
                 Intent.ACTION_SCREEN_ON -> {
                     isScreenOn.set(true)
-                    try {
-                        Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT)
-                    } catch (_: Exception) {}
-                    Log.i(TAG, "Screen ON detected -> Standard priority restored")
+                    Log.i(TAG, "Screen ON detected")
                 }
                 Intent.ACTION_BATTERY_CHANGED -> {
                     val temp = intent.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 300)
@@ -128,7 +125,9 @@ object ThermalManager {
     }
 
     fun isThermalCritical(): Boolean {
-        return currentThermalStatus.get() >= THERMAL_STATUS_SEVERE || getBatteryTemperatureCelsius() >= 44.0f
+        // FIX(thresholds): getRecommendedLimitRate() ile eşit tut (44°C'de hız
+        // hâlâ 1.0M iken "kritik" raporlanıyordu — tutarsız teşhis).
+        return currentThermalStatus.get() >= THERMAL_STATUS_CRITICAL || getBatteryTemperatureCelsius() >= 45.0f
     }
 
     fun getDiagnosticsReport(): Map<String, Any> {

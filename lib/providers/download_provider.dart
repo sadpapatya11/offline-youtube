@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
@@ -106,7 +107,11 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     final hasPendingTasks = _tasks.any(
       (t) =>
-          t.status == DownloadStatus.queued ||
+          // FIX(backoff): Tasks in 429 exponential backoff carry a scheduled
+          // retry message; the watchdog must NOT restart them early, otherwise
+          // the 15/30/60/120/300s backoff is bypassed and all retries burn out.
+          (t.status == DownloadStatus.queued &&
+              t.errorMessage?.contains('yeniden deneniyor') != true) ||
           (t.status == DownloadStatus.paused &&
               (t.errorMessage?.contains('Mobil veri') == true ||
                   t.errorMessage?.contains('Wi-Fi') == true ||
@@ -245,6 +250,22 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Duraklatılmış bir görevin koşullar düzelince otomatik yeniden başlatılıp
+  /// başlatılamayacağını belirler (ağ + kota mesajları).
+  /// FIX(quota-resume): Kota nedeniyle duraklatılan görevler de dahil edildi —
+  /// önceden yalnızca ağ mesajlı görevler yeniden kuyruğa alınıyor, depolama/süre
+  /// kotası mesajlı görevler sonsuza dek duraklı kalıyordu.
+  bool _isAutoResumablePausedTask(DownloadTask t) {
+    final msg = t.errorMessage;
+    if (msg == null) return false;
+    return msg.contains('Mobil veri') ||
+        msg.contains('Wi-Fi') ||
+        msg.contains('Ağ bağlantısı') ||
+        msg.contains('İnternet') ||
+        msg.contains('kotası') ||
+        msg.contains('doldu');
+  }
+
   Future<void> _evaluateConditionsAndAutoResume() async {
     if (_lastSettings == null || !_isLoaded) return;
 
@@ -294,10 +315,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         if (!_isQueuePaused) {
           for (final t in _tasks) {
             if (t.status == DownloadStatus.paused &&
-                (t.errorMessage?.contains('Mobil veri') == true ||
-                    t.errorMessage?.contains('Wi-Fi') == true ||
-                    t.errorMessage?.contains('Ağ bağlantısı') == true ||
-                    t.errorMessage?.contains('İnternet') == true)) {
+                _isAutoResumablePausedTask(t)) {
               t.status = DownloadStatus.queued;
               t.errorMessage = null;
             }
@@ -312,19 +330,24 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       // Tüm Ağlar izinli (Wi-Fi veya Mobil Veri farketmeksizin)
       _isWifiWaiting = false;
       if (!_isQueuePaused) {
-        for (final t in _tasks) {
-          if (t.status == DownloadStatus.paused &&
-              (t.errorMessage?.contains('Mobil veri') == true ||
-                  t.errorMessage?.contains('Wi-Fi') == true ||
-                  t.errorMessage?.contains('Ağ bağlantısı') == true ||
-                  t.errorMessage?.contains('İnternet') == true)) {
-            t.status = DownloadStatus.queued;
-            t.errorMessage = null;
+        // FIX(connectivity): Sadece gerçek bir bağlantı varsa görevleri kuyruğa
+        // al; bağlantı yoksa "Ağ bağlantısı kesildi" mesajı açıklama olarak
+        // kalsın (yoksa kullanıcı çevrimdışıyken görev sessizce "sırada" görünür).
+        final connectivity = await NetworkManager.instance.getCurrentConnectivity();
+        final hasConnection = connectivity.contains(ConnectivityResult.wifi) ||
+            connectivity.contains(ConnectivityResult.mobile);
+        if (hasConnection) {
+          for (final t in _tasks) {
+            if (t.status == DownloadStatus.paused &&
+                _isAutoResumablePausedTask(t)) {
+              t.status = DownloadStatus.queued;
+              t.errorMessage = null;
+            }
           }
-        }
-        await _saveTasksToStorage();
-        if (_tasks.any((t) => t.status == DownloadStatus.queued)) {
-          _triggerNextQueue();
+          await _saveTasksToStorage();
+          if (_tasks.any((t) => t.status == DownloadStatus.queued)) {
+            _triggerNextQueue();
+          }
         }
       }
     }
@@ -359,7 +382,9 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void _listenToNativeEvents() {
     _eventSubscription = NativeBridge.instance.downloadEvents.listen(
-      (data) {
+      // FIX(async): callback async — completed dalında disk taraması await ile
+      // yapılır (UI thread'i bloklamaz).
+      (data) async {
         final taskId = data['taskId']?.toString();
         if (taskId == null) return;
 
@@ -395,10 +420,14 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             task.errorMessage = null;
 
              // Video metadata kaydet (süreyi disk taramasında hatırlamak için)
+            // FIX(match): Eşleştirme artık benzersiz [videoId] işaretine
+            // öncelik veriyor; alt-dize (substring) başlık eşleşmesi, başlığı
+            // diğerinin öneki olan iki videoda YANLIŞ dosyaya metadata yazıyordu.
+            // FIX(perf): listSync() yerine asenkron list() — ana izolate bloklanmaz.
             try {
               final dir = Directory(StorageManager.instance.currentDownloadPath);
               if (dir.existsSync()) {
-                final files = dir.listSync();
+                final files = await dir.list().toList();
                 final cleanTaskTitle = task.title
                     .replaceAll(RegExp(r'[^a-zA-Z0-9ığüşöçİĞÜŞÖÇ]'), '')
                     .toLowerCase();
@@ -411,11 +440,13 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                       final cleanName = name
                           .replaceAll(RegExp(r'[^a-zA-Z0-9ığüşöçİĞÜŞÖÇ]'), '')
                           .toLowerCase();
-                      if (name.contains(task.title) ||
-                          (cleanTaskTitle.isNotEmpty &&
-                              cleanName.contains(cleanTaskTitle)) ||
-                          (task.id.isNotEmpty && name.contains(task.id)) ||
-                          (vid != null && name.contains(vid))) {
+                      // yt-dlp şablonu her zaman "Başlık [videoId].ext" üretir.
+                      final matchesVid = vid != null && name.contains('[$vid]');
+                      // YouTube dışı URL'ler (vid == null) için güvenli önek eşleşmesi.
+                      final matchesPrefixFallback = vid == null &&
+                          cleanTaskTitle.isNotEmpty &&
+                          cleanName.startsWith(cleanTaskTitle);
+                      if (matchesVid || matchesPrefixFallback) {
                         StorageManager.instance.saveVideoMetadata(
                           f.path,
                           durationSeconds: task.durationSeconds,
@@ -641,57 +672,64 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (_isQueuePaused) return;
     if (_isProcessingQueue) return;
 
-    final currentSettings = settings ?? _lastSettings;
-    if (currentSettings != null) {
-      _lastSettings = currentSettings;
-
-      // 1. Ağ kontrolü
-      final netCheck = await NetworkManager.instance
-          .checkNetworkPermissionAndStatus(currentSettings);
-      if (netCheck['allowed'] != true) {
-        _isWifiWaiting =
-            currentSettings.networkMode == NetworkRestrictionMode.anyWifi;
-        notifyListeners();
-        return;
-      }
-
-      // 2. Depolama kotası kontrolü
-      final maxBytes = currentSettings.maxStorageLimitGB * 1024 * 1024 * 1024;
-      final usedBytes = await StorageManager.instance.getUsedStorageBytes();
-      if (usedBytes >= maxBytes) {
-        notifyListeners();
-        return;
-      }
-
-      // 3. Toplam video süresi kotası kontrolü
-      final downloadedVideos =
-          await StorageManager.instance.scanDownloadedVideos();
-      final totalDurationSec = downloadedVideos.fold<int>(
-          0, (sum, v) => sum + (v.durationSeconds ?? 0));
-      final maxDurationSec = currentSettings.maxVideoDurationHours * 3600;
-      if (totalDurationSec >= maxDurationSec) {
-        notifyListeners();
-        return;
-      }
-    }
-
-    if (_activeTaskId != null) {
-      final activeIndex = _tasks.indexWhere((t) => t.id == _activeTaskId);
-      if (activeIndex != -1 &&
-          _tasks[activeIndex].status == DownloadStatus.downloading) {
-        return;
-      }
-    }
-
+    // FIX(race): Set the processing flag BEFORE the first await. Previously the
+    // flag was set after slow network/storage checks, so two concurrent callers
+    // (watchdog + connectivity event) could both pass the guard and start the
+    // SAME task twice on the native side (two yt-dlp processes, one output file).
     _isProcessingQueue = true;
     try {
+      final currentSettings = settings ?? _lastSettings;
+      if (currentSettings != null) {
+        _lastSettings = currentSettings;
+
+        // 1. Ağ kontrolü
+        final netCheck = await NetworkManager.instance
+            .checkNetworkPermissionAndStatus(currentSettings);
+        if (netCheck['allowed'] != true) {
+          _isWifiWaiting =
+              currentSettings.networkMode == NetworkRestrictionMode.anyWifi;
+          notifyListeners();
+          return;
+        }
+
+        // 2. Depolama kotası kontrolü
+        final maxBytes = currentSettings.maxStorageLimitGB * 1024 * 1024 * 1024;
+        final usedBytes = await StorageManager.instance.getUsedStorageBytes();
+        if (usedBytes >= maxBytes) {
+          notifyListeners();
+          return;
+        }
+
+        // 3. Toplam video süresi kotası kontrolü
+        final downloadedVideos =
+            await StorageManager.instance.scanDownloadedVideos();
+        final totalDurationSec = downloadedVideos.fold<int>(
+            0, (sum, v) => sum + (v.durationSeconds ?? 0));
+        final maxDurationSec = currentSettings.maxVideoDurationHours * 3600;
+        if (totalDurationSec >= maxDurationSec) {
+          notifyListeners();
+          return;
+        }
+      }
+
+      // FIX(race): Re-check the master pause after the awaited checks above —
+      // the user may have paused the whole queue while we were scanning.
+      if (_isQueuePaused) return;
+
+      if (_activeTaskId != null) {
+        final activeIndex = _tasks.indexWhere((t) => t.id == _activeTaskId);
+        if (activeIndex != -1 &&
+            _tasks[activeIndex].status == DownloadStatus.downloading) {
+          return;
+        }
+      }
+
       // Sıradaki ilk 'queued' görevi seç
       final nextTaskIndex = _tasks.indexWhere(
         (t) => t.status == DownloadStatus.queued,
       );
 
       if (nextTaskIndex == -1) {
-        _isProcessingQueue = false;
         if (!isDownloadingActive) {
           NativeBridge.instance.stopDownloadService();
         }
@@ -974,14 +1012,16 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       final maxDurationSec = settings.maxVideoDurationHours * 3600;
 
       if (duration > 0 && (currentTotalSec + duration) > maxDurationSec) {
-        task.status = DownloadStatus.error;
+        // FIX(quota): Kota aşıldığında görevi kuyruktan TAMAMEN kaldır (daha
+        // önce hata durumunda kuyrukta kalıyor, "Hata Oluştu" filtresinde
+        // kirlilik yaratıyor ve retryAllErrors bu videoyu yanlışlıkla tekrar
+        // indiriyordu).
+        _tasks.removeWhere((t) => t.id == task.id);
         final totalHours =
             ((currentTotalSec + duration) / 3600).toStringAsFixed(1);
-        task.errorMessage =
-            'Toplam video süresi ($totalHours sa), belirlenen toplam kotayı (${settings.maxVideoDurationHours} sa) aşacağı için eklenmedi.';
         _saveTasksToStorage();
         notifyListeners();
-        return task.errorMessage;
+        return 'Toplam video süresi ($totalHours sa), belirlenen toplam kotayı (${settings.maxVideoDurationHours} sa) aşacağı için eklenmedi.';
       }
 
       task.title = title;
@@ -1105,6 +1145,9 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           durationSeconds: duration,
           uploader: uploader.isNotEmpty ? uploader : null,
           status: DownloadStatus.queued,
+          // FIX(sync): Görevin kaynak listesini işaretle — senkron temizliği
+          // yalnızca bu listeye ait görevleri kaldırabilir.
+          sourcePlaylistUrl: url,
         );
 
         _tasks.add(newTask);
@@ -1133,9 +1176,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   /// Kayıtlı oynatma listelerini YouTube ile senkronize eder:
-  /// - YouTube'dan silinmiş videoları kuyruktan ve indirilenlerden temizler (çöpe taşır).
+  /// - YouTube'dan silinmiş videoları kuyruktan (bekleyen/duraklı görevler) temizler.
   /// - Yeni eklenen videoları kuyruğun en tepesine ekler.
   /// - İndirme kurallarını (Wi-Fi, kota, saat) harfiyen uygular.
+  /// Not: İndirilmiş dosyalar asla otomatik silinmez (kullanıcı güvenliği).
   Future<PlaylistSyncResult> syncSavedPlaylists({
     required AppSettings settings,
     required LibraryProvider libraryProvider,
@@ -1209,11 +1253,38 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             });
 
             if (!isAlreadyDownloaded && !isAlreadyInQueue && !isAlreadyInBatch) {
-              allNewEntries.add(entry);
+              // FIX(sync): Kaynak playlist URL'sini entry ile birlikte sakla ki
+              // oluşturulan görev doğru listeye bağlanabilsin.
+              allNewEntries.add({
+                ...entry,
+                '_sourcePlaylistUrl': playlistUrl,
+              });
             }
           }
         } catch (_) {
           // Bir listede hata olursa diğerlerine devam et
+        }
+      }
+
+      // FIX(sync-cleanup): YouTube'dan artık çevrimiçi olmayan videoları
+      // kuyruktan (queued/paused görevler) temizle. Önceden deletedCount hep 0
+      // kalıyor ve docstring'in vaat ettiği temizlik hiç gerçekleşmiyordu.
+      // Yalnızca kayıtlı listelerden gelen görevler silinir — elle eklenen
+      // tek videolar ve indirilen dosyalar asla dokunulmaz (kullanıcı güvenliği).
+      for (final t in List.of(_tasks)) {
+        final belongsToSavedPlaylist = t.sourcePlaylistUrl != null &&
+            settings.savedPlaylists.contains(t.sourcePlaylistUrl);
+        if (!belongsToSavedPlaylist) continue;
+        if (t.status == DownloadStatus.queued ||
+            t.status == DownloadStatus.paused) {
+          final tVid = VideoItem.extractVideoId(t.url);
+          final stillOnline =
+              (tVid != null && currentOnlineVideoIds.contains(tVid)) ||
+                  currentOnlineUrls.contains(t.url);
+          if (!stillOnline) {
+            _tasks.remove(t);
+            deletedCount++;
+          }
         }
       }
 
@@ -1268,6 +1339,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         runningTotalSec += duration;
         final taskId = '${DateTime.now().millisecondsSinceEpoch}_sync_$i';
+        final entrySourcePlaylist =
+            (entry['_sourcePlaylistUrl'] as String? ?? '').trim();
         final newTask = DownloadTask(
           id: taskId,
           url: videoUrl,
@@ -1276,6 +1349,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           durationSeconds: duration,
           uploader: uploader.isNotEmpty ? uploader : null,
           status: DownloadStatus.queued,
+          // FIX(sync): Görevin kaynak listesini işaretle — senkron temizliği
+          // yalnızca bu listeye ait görevleri kaldırabilir.
+          sourcePlaylistUrl:
+              entrySourcePlaylist.isNotEmpty ? entrySourcePlaylist : null,
         );
 
         _tasks.insert(0, newTask);
@@ -1350,13 +1427,21 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  void removeTask(String taskId) {
-    _tasks.removeWhere((t) => t.id == taskId);
+  Future<void> removeTask(String taskId) async {
+    // FIX(orphan): If the removed task is the ACTIVE download, cancel the native
+    // process first. Previously the task was removed but yt-dlp kept running in
+    // the foreground service (invisible download + a second download could then
+    // start concurrently and both would write into the same folder).
     if (_activeTaskId == taskId) {
+      await NativeBridge.instance.cancelDownload(taskId);
       _activeTaskId = null;
     }
+    _tasks.removeWhere((t) => t.id == taskId);
     _saveTasksToStorage();
     notifyListeners();
+    if (_activeTaskId == null) {
+      _triggerNextQueue();
+    }
   }
 
   void clearErrors() {

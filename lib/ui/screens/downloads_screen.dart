@@ -497,13 +497,36 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                                         ],
                                       ),
                                     ),
+                                    // FIX(snackbar): confirmDismiss silme
+                                    // SONUCUNU bekler — taşıma başarısızsa
+                                    // satır yerinde kalır ve yanlış "taşındı"
+                                    // mesajı gösterilmez (önceden her
+                                    // kaydırmada başarılı mesaj çıkıyor, "Geri
+                                    // Al" hayalet kayıt oluşturabiliyordu).
+                                    confirmDismiss: (direction) async {
+                                      final lib =
+                                          context.read<LibraryProvider>();
+                                      final success =
+                                          await lib.deleteVideo(video);
+                                      if (!success && context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                          ..hideCurrentSnackBar()
+                                          ..showSnackBar(const SnackBar(
+                                            content: Text(
+                                                '⚠️ Video Geri Dönüşüm Kutusu\'na taşınamadı. Tekrar deneyin.'),
+                                            duration: Duration(seconds: 3),
+                                          ));
+                                      }
+                                      return success;
+                                    },
                                     onDismissed: (direction) {
                                       final title = video.title;
-                                      final lib = context.read<LibraryProvider>();
-                                      final deleteFuture = lib.deleteVideo(video);
+                                      final lib =
+                                          context.read<LibraryProvider>();
                                       ScaffoldMessenger.of(context)
                                           .hideCurrentSnackBar();
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
                                         SnackBar(
                                           content: Text(
                                               '🗑️ "$title" Geri Dönüşüm Kutusu\'na taşındı (24 saat sonra silinir).'),
@@ -514,16 +537,19 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                                             textColor:
                                                 const Color(0xFF00E676),
                                             onPressed: () async {
-                                              await deleteFuture;
                                               final trashed = lib
                                                   .trashedVideos
                                                   .firstWhere(
-                                                (t) => t.video.id == video.id,
-                                                orElse: () => TrashedVideoItem(
-                                                    video: video,
-                                                    deletedAt: DateTime.now()),
+                                                (t) =>
+                                                    t.video.id == video.id,
+                                                orElse: () =>
+                                                    TrashedVideoItem(
+                                                        video: video,
+                                                        deletedAt:
+                                                            DateTime.now()),
                                               );
-                                              await lib.restoreVideo(trashed);
+                                              await lib
+                                                  .restoreVideo(trashed);
                                             },
                                           ),
                                         ),

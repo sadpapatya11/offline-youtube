@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -111,12 +112,22 @@ class MainActivity : FlutterActivity() {
                         putExtra(DownloadForegroundService.EXTRA_TITLE, title)
                         putExtra(DownloadForegroundService.EXTRA_OUTPUT_PATH, outputPath)
                     }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
+                    // FIX(fgs-start): API 31+'te uygulama arka plandayken
+                    // startForegroundService() ForegroundServiceStartNotAllowedException
+                    // fırlatır; yakalanmazsa Dart tarafında PlatformException olur ve
+                    // görev "İndirme başlatılamadı" hatasına düşer. Yapılandırılmış
+                    // hata dönüyoruz ki Dart kuyruğu ön plana dönünce yeniden denesin.
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(intent)
+                        } else {
+                            startService(intent)
+                        }
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "FGS start failed: ${e.message}")
+                        result.error("FGS_NOT_ALLOWED", "Arka planda servis başlatılamadı. Uygulama ön plana alınca otomatik yeniden denenecek.", null)
                     }
-                    result.success(true)
                 }
 
                 "pauseDownload" -> {
@@ -129,26 +140,9 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
 
-                "resumeDownload" -> {
-                    val taskId = call.argument<String>("taskId") ?: ""
-                    val url = call.argument<String>("url") ?: ""
-                    val title = call.argument<String>("title") ?: "Video"
-                    val outputPath = call.argument<String>("outputPath") ?: ""
-
-                    val intent = Intent(this, DownloadForegroundService::class.java).apply {
-                        action = DownloadForegroundService.ACTION_RESUME
-                        putExtra(DownloadForegroundService.EXTRA_TASK_ID, taskId)
-                        putExtra(DownloadForegroundService.EXTRA_URL, url)
-                        putExtra(DownloadForegroundService.EXTRA_TITLE, title)
-                        putExtra(DownloadForegroundService.EXTRA_OUTPUT_PATH, outputPath)
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
-                    result.success(true)
-                }
+                // NOTE: Eski "resumeDownload" handler'ı kaldırıldı — Dart tarafında
+                // hiçbir çağıran yoktu (devam etme aynı taskId ile "startDownload"
+                // üzerinden yapılıyor) ve yanıltıcı ölü yüzey oluşturuyordu.
 
                 "cancelDownload" -> {
                     val taskId = call.argument<String>("taskId") ?: ""
@@ -244,13 +238,16 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    private fun calculateFolderSize(file: File): Long {
-        if (!file.exists()) return 0L
+    // FIX(cycle): Sembolik link döngüsü veya FIFO içeren klasörlerde sonsuz
+    // özyineleme StackOverflowError'a (Error — catch edilemez) yol açıyordu.
+    // Derinlik limiti + izlenen gerçek yollar ile korunuyor.
+    private fun calculateFolderSize(file: File, depth: Int = 0): Long {
+        if (!file.exists() || depth > 16) return 0L
         if (file.isFile) return file.length()
         var length = 0L
         val files = file.listFiles() ?: return 0L
         for (f in files) {
-            length += if (f.isFile) f.length() else calculateFolderSize(f)
+            length += if (f.isFile) f.length() else calculateFolderSize(f, depth + 1)
         }
         return length
     }

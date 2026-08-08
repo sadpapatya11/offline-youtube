@@ -28,6 +28,10 @@ class DownloadTask {
   String? downloadedSize;
   int retryCount;
   final DateTime createdAt;
+  // FIX(sync): Görevin hangi oynatma listesinden eklendiğini izler.
+  // syncSavedPlaylists yalnızca bu listeye ait bekleyen görevleri temizler —
+  // elle eklenen tek videolar asla yanlışlıkla silinmez. Null = tek video.
+  final String? sourcePlaylistUrl;
 
   DownloadTask({
     required this.id,
@@ -46,6 +50,7 @@ class DownloadTask {
     this.totalSize,
     this.downloadedSize,
     this.retryCount = 0,
+    this.sourcePlaylistUrl,
     DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
@@ -177,6 +182,7 @@ class DownloadTask {
       'totalSize': totalSize,
       'downloadedSize': downloadedSize,
       'retryCount': retryCount,
+      'sourcePlaylistUrl': sourcePlaylistUrl,
       'createdAt': createdAt.toIso8601String(),
     };
   }
@@ -197,6 +203,15 @@ class DownloadTask {
       return (s.toLowerCase() == 'null' || s.isEmpty) ? '' : s;
     }
 
+    // FIX(tolerant): Eskiden kaydedilmiş değerler double ise (legacy veri)
+    // as int? cast'i tüm görevi kaybettiriyordu; num üzerinden güvenli çevir.
+    int? toIntOrNull(dynamic v) {
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v);
+      return null;
+    }
+
     final rawTitle = cleanStr(json['title']);
     final rawThumb = cleanStr(json['thumbnail']);
     final rawUploader = cleanStr(json['uploader']);
@@ -208,9 +223,9 @@ class DownloadTask {
       url: json['url'] as String? ?? '',
       title: rawTitle.isNotEmpty ? rawTitle : 'YouTube Videosu',
       thumbnail: rawThumb.isNotEmpty ? rawThumb : null,
-      durationSeconds: json['durationSeconds'] as int?,
+      durationSeconds: toIntOrNull(json['durationSeconds']),
       uploader: rawUploader.isNotEmpty ? rawUploader : null,
-      estimatedSizeBytes: json['estimatedSizeBytes'] as int?,
+      estimatedSizeBytes: toIntOrNull(json['estimatedSizeBytes']),
       status: parsedStatus,
       progress: (json['progress'] as num?)?.toDouble() ?? 0.0,
       speed: cleanStr(json['speed']),
@@ -222,6 +237,9 @@ class DownloadTask {
       totalSize: rawTotalSize.isNotEmpty ? rawTotalSize : null,
       downloadedSize: rawDownloadedSize.isNotEmpty ? rawDownloadedSize : null,
       retryCount: json['retryCount'] as int? ?? 0,
+      sourcePlaylistUrl: cleanStr(json['sourcePlaylistUrl']).isNotEmpty
+          ? json['sourcePlaylistUrl'] as String
+          : null,
       createdAt: json['createdAt'] != null
           ? DateTime.tryParse(json['createdAt'] as String) ?? DateTime.now()
           : DateTime.now(),

@@ -26,6 +26,11 @@ void main() async {
 class OfflineYoutubeApp extends StatelessWidget {
   const OfflineYoutubeApp({super.key});
 
+  // FIX(startup-race): Ayarların "yükleniyor -> yüklendi" geçişini izlemek
+  // için önceki durumu hatırlar (indirme klasörü ancak ayar yüklemesi
+  // tamamlanınca oluşturuluyor). StatelessWidget içinde static olmalı.
+  static bool _lastSettingsLoading = true;
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
@@ -37,6 +42,14 @@ class OfflineYoutubeApp extends StatelessWidget {
           update: (_, settingsProvider, libraryProvider, downloadProvider) {
             final provider = downloadProvider ?? DownloadProvider();
             provider.onLibraryNeedsRefresh = () => libraryProvider.refresh();
+            // FIX(startup-race): Ayarlar yüklenip indirme klasörü
+            // oluşturulduğunda kütüphaneyi yeniden tara — aksi halde
+            // klasör-öncesi boş tarama sonucu ekranda kalıyordu.
+            final wasLoading = _lastSettingsLoading;
+            _lastSettingsLoading = settingsProvider.isLoading;
+            if (wasLoading && !settingsProvider.isLoading) {
+              libraryProvider.refresh();
+            }
             if (!settingsProvider.isLoading) {
               provider.onSettingsChanged(settingsProvider.settings);
             }

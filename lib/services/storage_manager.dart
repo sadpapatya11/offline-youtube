@@ -131,6 +131,10 @@ class StorageManager {
           final ext = entity.path.split('.').last.toLowerCase();
           if (['mp4', 'mkv', 'webm', 'ts', '3gp', 'm4a'].contains(ext)) {
             final fileName = entity.path.split(Platform.pathSeparator).last;
+            // FIX(fragments): Başarısız ffmpeg birleştirmelerinin bıraktığı
+            // "Title [id].f137.mp4" / ".f140.m4a" parça dosyalarını kütüphanede
+            // sahte video olarak gösterme.
+            if (RegExp(r'\.f\d+\.(mp4|m4a)$').hasMatch(fileName)) continue;
             final stat = await entity.stat();
             final title = fileName.substring(0, fileName.lastIndexOf('.'));
 
@@ -258,25 +262,51 @@ class StorageManager {
       final fileName = item.filePath.split(Platform.pathSeparator).last;
       final destFilePath = '$trashPath/$fileName';
 
-      await srcFile.rename(destFilePath);
-
-      // Taşı: .meta.json
-      final srcMeta = File('${item.filePath.substring(0, item.filePath.lastIndexOf('.'))}.meta.json');
-      if (await srcMeta.exists()) {
-        final destMeta = File('${destFilePath.substring(0, destFilePath.lastIndexOf('.'))}.meta.json');
-        await srcMeta.rename(destMeta.path);
+      // FIX(atomicity): Önce tüm yan dosyaları (meta, thumbnail) taşımaya
+      // çalış; ana video dosyasını en son taşı. Bir adım başarısız olursa
+      // zaten taşınanları geri alarak tutarlılığı koru — önceden video
+      // taşındıktan sonra meta taşıma hatası, dosyanın çöp listesinde hiç
+      // görünmemesine yol açıyordu.
+      var movedMeta = false;
+      try {
+        // Taşı: .meta.json
+        final srcMeta = File('${item.filePath.substring(0, item.filePath.lastIndexOf('.'))}.meta.json');
+        if (await srcMeta.exists()) {
+          final destMeta = File('${destFilePath.substring(0, destFilePath.lastIndexOf('.'))}.meta.json');
+          await srcMeta.rename(destMeta.path);
+          movedMeta = true;
+        }
+      } catch (_) {
+        // meta taşıma başarısız -> işlem başarısız say, video yerinde kalsın
+        return false;
       }
 
       String? destThumbPath;
-      if (item.thumbnailPath != null) {
-        final srcThumb = File(item.thumbnailPath!);
-        if (await srcThumb.exists()) {
-          final thumbName =
-              item.thumbnailPath!.split(Platform.pathSeparator).last;
-          destThumbPath = '$trashPath/$thumbName';
-          await srcThumb.rename(destThumbPath);
+      try {
+        if (item.thumbnailPath != null) {
+          final srcThumb = File(item.thumbnailPath!);
+          if (await srcThumb.exists()) {
+            final thumbName =
+                item.thumbnailPath!.split(Platform.pathSeparator).last;
+            destThumbPath = '$trashPath/$thumbName';
+            await srcThumb.rename(destThumbPath);
+          }
         }
+      } catch (_) {
+        // thumbnail taşıma başarısız -> meta'yı geri al ve başarısız say
+        if (movedMeta) {
+          try {
+            final srcMeta = File('${item.filePath.substring(0, item.filePath.lastIndexOf('.'))}.meta.json');
+            if (!await srcMeta.exists()) {
+              final destMeta = File('${destFilePath.substring(0, destFilePath.lastIndexOf('.'))}.meta.json');
+              await destMeta.rename(srcMeta.path);
+            }
+          } catch (_) {}
+        }
+        return false;
       }
+
+      await srcFile.rename(destFilePath);
 
       final trashedVideo = VideoItem(
         id: item.id,
@@ -301,6 +331,8 @@ class StorageManager {
 
       return true;
     } catch (e) {
+      // FIX(atomicity): Kritik adımlar yukarıda ayrı try bloklarıyla
+      // korunduğundan buraya yalnızca istisnai durumlarda düşülür.
       return false;
     }
   }

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../models/video_item.dart';
 import '../../services/playback_manager.dart';
 import '../theme/amoled_theme.dart';
@@ -55,6 +56,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // Kaldığı Yerden Devam Etme
   int _lastSavedPosMs = 0;
   bool _hasAutoAdvanced = false;
+
+  // FIX(progress): İlerleme çubuğu/süre etiketinin rebuild eşiği — pozisyon
+  // 250ms'den fazla değişince setState (her tick'te rebuild'e gerek yok).
+  int _lastRenderedPosMs = 0;
 
   // Altyazı Yönetimi
   bool _showSubtitles = false;
@@ -166,6 +171,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _isInitialized = true;
       });
 
+      // FIX(screen): Oynatma sırasında ekranın kapanmasını engelle.
+      await WakelockPlus.enable();
+
       await _loadSubtitlesFor(vid);
     } catch (e) {
       // FIX(leak): Controller oluşturuldu ama _controller'a atanamadan hata
@@ -185,6 +193,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final posMs = c.value.position.inMilliseconds;
     final durMs = c.value.duration.inMilliseconds;
+
+    // FIX(progress): Pozisyon değişince ekranı güncelle — eski kodda yalnızca
+    // altyazı değişiminde setState vardı; altyazı kapalıyken ilerleme çubuğu
+    // ve süre etiketi hiç ilerlemiyordu.
+    if ((posMs - _lastRenderedPosMs).abs() >= 250) {
+      _lastRenderedPosMs = posMs;
+      setState(() {});
+    }
 
     // Periyodik olarak pozisyonu kaydet
     if ((posMs - _lastSavedPosMs).abs() > 2000) {
@@ -399,6 +415,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    // FIX(screen): Ekran kilidini bırak (oynatıcı kapandı).
+    WakelockPlus.disable();
     _seekFeedbackTimer?.cancel();
     _saveCurrentPosition();
     final c = _controller;

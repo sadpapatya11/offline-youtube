@@ -5,6 +5,27 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+import java.util.Properties
+
+// FIX(security): Keystore repo'da tutulmaz — keystore.properties gitignore'da.
+// Dosya yoksa release imzası devre dışı kalır (debug anahtarı kullanılır),
+// böylece keystore'suz ortamlarda build bozulmaz.
+fun loadKeystoreProps(project: org.gradle.api.Project): Properties? {
+    val propsFile = project.file("keystore.properties")
+    if (!propsFile.exists()) {
+        project.logger.warn("keystore.properties bulunamadı — release imzası devre dışı, debug anahtarı kullanılacak.")
+        return null
+    }
+    val props = Properties()
+    propsFile.inputStream().use { props.load(it) }
+    val storeFile = project.file(props.getProperty("storeFile"))
+    if (!storeFile.exists()) {
+        project.logger.warn("Keystore dosyası yok (${storeFile.absolutePath}) — release imzası devre dışı.")
+        return null
+    }
+    return props
+}
+
 android {
     namespace = "com.offlineyoutube.offlineyoutube"
     compileSdk = flutter.compileSdkVersion
@@ -45,9 +66,21 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // FIX(security): Release APK artık herkese açık debug anahtarıyla
+            // imzalanmıyor. Keystore/şifreler android/app/keystore.properties
+            // dosyasında tutulur (gitignore'da) ve üretim dışındaki ortamlarda
+            // imzalama devre dışı kalır (geliştirici imzası kullanılır).
+            val releaseProps = loadKeystoreProps(project)
+            signingConfig = if (releaseProps != null) {
+                signingConfigs.create("release") {
+                    storeFile = project.file(releaseProps.getProperty("storeFile"))
+                    storePassword = releaseProps.getProperty("storePassword")
+                    keyAlias = releaseProps.getProperty("keyAlias")
+                    keyPassword = releaseProps.getProperty("keyPassword")
+                }
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isMinifyEnabled = false
             isShrinkResources = false
             // FIX(proguard): youtubedl-android keep kuralları hazır — minify

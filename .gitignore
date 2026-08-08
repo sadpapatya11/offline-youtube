@@ -50,3 +50,12 @@ testsprite_tests/tmp/config.json
 android/.kotlin/
 .mcp.json
 *.mcp.json
+
+# Security: keystore ve imza bilgileri ASLA commit edilmez
+*.jks
+*.keystore
+*.p12
+*.jceks
+android/app/keystore.properties
+key.properties
+.env

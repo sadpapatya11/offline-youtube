@@ -38,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SnackBar(
           content: Text('Panoda geçerli bir YouTube bağlantısı bulunamadı.'),
           backgroundColor: Color(0xFF330000),
-          duration: Duration(seconds: 3),
+          duration: Duration(seconds: 2),
         ),
       );
     }
@@ -53,7 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const SnackBar(
           content: Text('Lütfen geçerli bir YouTube video veya liste linki girin.'),
           backgroundColor: Color(0xFF330000),
-          duration: Duration(seconds: 3),
+          duration: Duration(seconds: 2),
         ),
       );
       return;
@@ -93,7 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
           SnackBar(
             content: const Text('⚡ İndirme otomatik olarak başlatıldı!'),
             backgroundColor: const Color(0xFF003311),
-            duration: const Duration(seconds: 3),
+            duration: const Duration(seconds: 2),
             action: SnackBarAction(
               label: 'Kuyruğu Gör',
               textColor: AmoledTheme.pureWhite,

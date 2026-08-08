@@ -189,11 +189,21 @@ class DownloadForegroundService : Service() {
                     val now = System.currentTimeMillis()
                     if (progress >= 100f || now - lastNotificationTime >= 1000L) {
                         lastNotificationTime = now
-                        val sizeInfo = if (totalSize.isNotEmpty()) " [$totalSize]" else ""
+                        // FIX(percent): Bildirim metninde canlı yüzde + indirilen
+                        // miktar göster — setProgress() yalnızca çubuk çizer,
+                        // sayı metne yazılmazsa kullanıcı yüzdeyi göremez.
+                        val pct = if (progress >= 100f) 100 else progress.toInt()
+                        val sizeInfo = if (downloadedSize.isNotEmpty() && totalSize.isNotEmpty()) {
+                            " [$downloadedSize / $totalSize]"
+                        } else if (totalSize.isNotEmpty()) {
+                            " [$totalSize]"
+                        } else {
+                            ""
+                        }
                         val notification = buildNotification(
                             title = title,
-                            content = "$speed$sizeInfo - Kalan: ${formatEta(eta)}",
-                            progress = progress.toInt(),
+                            content = "%$pct $speed$sizeInfo - Kalan: ${formatEta(eta)}",
+                            progress = pct,
                             indeterminate = false
                         )
                         manager.notify(SERVICE_NOTIFICATION_ID, notification)

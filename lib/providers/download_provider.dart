@@ -766,31 +766,36 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   // --- 5. URL DOĞRULAMA VE HATA TEMİZLEME ---
 
+  static String? extractYouTubeUrl(String input) {
+    // URL'yi metin içinden Regex ile çıkar
+    final regex = RegExp(r'(https?://[^\s]+)');
+    final match = regex.firstMatch(input);
+    if (match != null) {
+      final url = match.group(0);
+      if (url != null) {
+        final uri = Uri.tryParse(url);
+        if (uri != null && uri.hasScheme && (uri.scheme == 'http' || uri.scheme == 'https')) {
+          final host = uri.host.toLowerCase();
+          final validHosts = [
+            'youtube.com',
+            'www.youtube.com',
+            'm.youtube.com',
+            'music.youtube.com',
+            'youtu.be',
+          ];
+          if (validHosts.contains(host) || host.endsWith('.youtube.com')) {
+            if (uri.path.isNotEmpty) {
+              return url;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   static bool isValidYouTubeUrl(String input) {
-    final trimmed = input.trim();
-    if (trimmed.isEmpty) return false;
-
-    final uri = Uri.tryParse(trimmed);
-    if (uri == null) return false;
-
-    if (!uri.hasScheme || (uri.scheme != 'http' && uri.scheme != 'https')) {
-      return false;
-    }
-
-    final host = uri.host.toLowerCase();
-    final validHosts = [
-      'youtube.com',
-      'www.youtube.com',
-      'm.youtube.com',
-      'music.youtube.com',
-      'youtu.be',
-    ];
-
-    if (!validHosts.contains(host) && !host.endsWith('.youtube.com')) {
-      return false;
-    }
-
-    return uri.path.isNotEmpty;
+    return extractYouTubeUrl(input) != null;
   }
 
   static bool isPlaylistUrl(String url) {

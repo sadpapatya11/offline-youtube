@@ -45,10 +45,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _triggerDownload(String url) async {
-    final cleanUrl = url.trim();
-    if (cleanUrl.isEmpty) return;
-
-    if (!DownloadProvider.isValidYouTubeUrl(cleanUrl)) {
+    final cleanUrl = DownloadProvider.extractYouTubeUrl(url);
+    if (cleanUrl == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Lütfen geçerli bir YouTube video veya liste linki girin.'),
@@ -57,6 +55,11 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
       return;
+    }
+
+    // Arama kutusuna sadece temiz linki geri yaz
+    if (_urlController.text != cleanUrl) {
+      _urlController.text = cleanUrl;
     }
 
     setState(() {
@@ -101,6 +104,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         );
+        // Zorunlu gizleme (Action olan snackbarlar bazı cihazlarda takılı kalabiliyor)
+        Future.delayed(const Duration(seconds: 2), () {
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          }
+        });
       }
     }
   }

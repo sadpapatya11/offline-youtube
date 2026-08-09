@@ -542,46 +542,46 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return Scaffold(
       backgroundColor: AmoledTheme.pureBlack,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.5),
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: AmoledTheme.pureWhite),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              currentVideo.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: AmoledTheme.pureWhite,
+      appBar: _showControls
+          ? AppBar(
+              backgroundColor: Colors.black.withValues(alpha: 0.5),
+              elevation: 0,
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AmoledTheme.pureWhite),
+                onPressed: () => Navigator.pop(context),
               ),
-            ),
-            if (hasMultiple)
-              Text(
-                '${_currentIndex + 1} / ${_playlist.length} video',
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: AmoledTheme.subText,
-                  fontWeight: FontWeight.w500,
-                ),
+              title: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    currentVideo.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AmoledTheme.pureWhite,
+                    ),
+                  ),
+                  if (hasMultiple)
+                    Text(
+                      '${_currentIndex + 1} / ${_playlist.length} video',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: AmoledTheme.subText,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                ],
               ),
-          ],
-        ),
-        actions: [
-          if (_subtitleCues.isNotEmpty)
-            IconButton(
-              icon: Icon(
-                _showSubtitles
-                    ? Icons.closed_caption_rounded
-                    : Icons.closed_caption_off_rounded,
+              actions: [
+                if (_subtitleCues.isNotEmpty)
+                  IconButton(
+                    icon: Icon(
+                      _showSubtitles
+                          ? Icons.closed_caption_rounded
+                          : Icons.closed_caption_off_rounded,
                 color: _showSubtitles
                     ? const Color(0xFF00E676)
                     : AmoledTheme.subText,

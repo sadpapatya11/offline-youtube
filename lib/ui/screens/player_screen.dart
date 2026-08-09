@@ -624,7 +624,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
           const SizedBox(width: 8),
         ],
-      ),
+      ) : null,
       body: Center(
         child: _error != null
             ? Padding(

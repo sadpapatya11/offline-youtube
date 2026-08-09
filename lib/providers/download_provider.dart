@@ -6,6 +6,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
 import '../models/download_task.dart';
+import '../models/playlist_entry.dart';
 import '../models/video_item.dart';
 import '../providers/library_provider.dart';
 import '../services/native_bridge.dart';
@@ -605,6 +606,32 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             notifyListeners();
             _triggerNextQueue();
             break;
+
+          // FIX(paused-event): the foreground service emits "paused" but Dart had
+          // no branch for it, so the event was silently dropped: the task stayed
+          // "downloading" in the UI and the queue never advanced.
+          case 'paused':
+            if (task.status != DownloadStatus.cancelled &&
+                task.status != DownloadStatus.completed) {
+              task.status = DownloadStatus.paused;
+              task.speed = '';
+            }
+            if (_activeTaskId == taskId) {
+              _activeTaskId = null;
+            }
+            _saveTasksToStorage();
+            notifyListeners();
+            _triggerNextQueue();
+            break;
+
+          // "started" is informational only: the task is already marked
+          // downloading by processNextQueue before the native call.
+          case 'started':
+            break;
+
+          default:
+            debugPrint('[DownloadProvider] unhandled native event: $type');
+            break;
         }
       },
       onError: (error) {
@@ -792,6 +819,16 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     return uri.path.isNotEmpty;
   }
+
+  /// Tek bir kanal/oynatma listesi bağlantısından bir seferde listelenecek en
+  /// fazla video sayısı. Bir kanalda yüzlerce video olabilir; sınır aşılırsa
+  /// kırpma SESSİZ yapılmaz, kullanıcıya bildirilir.
+  static const int maxPlaylistEntries = 100;
+
+  /// Süresi bilinmeyen video için kota hesabında kullanılan tahmin.
+  /// `--flat-playlist` süreyi çoğu zaman döndürmez; bu videoları kotadan muaf
+  /// tutmak kotanın sessizce aşılmasına yol açıyordu.
+  static const int defaultVideoDurationSeconds = 600;
 
   static bool isPlaylistUrl(String url) {
     final lower = url.toLowerCase();
@@ -1049,6 +1086,200 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Bağlantıyı çözümleyip video listesini döndürür — kuyruğa EKLEMEZ.
+  ///
+  /// Seçim ekranı bunu kullanır: kullanıcı neyi indireceğine karar vermeden
+  /// kuyruk kirletilmez. Zaten kuyrukta/kütüphanede olan videolar atılmaz,
+  /// `alreadyPresent` ile işaretlenir — kullanıcı durumu görsün.
+  Future<PlaylistFetchResult> resolvePlaylist({
+    required String url,
+    required AppSettings settings,
+  }) async {
+    final rawEntries = await NativeBridge.instance.fetchPlaylistEntries(url);
+    if (rawEntries.isEmpty) {
+      return PlaylistFetchResult(
+          entries: const [], totalCount: 0, sourceUrl: url);
+    }
+
+    // fetchPlaylistEntries YouTube'un varsayılan (en yeni önce) sırasını
+    // döndürür; ayar KAPALIYKEN (en eski önce) ters çevrilir.
+    // syncSavedPlaylists sıralamasıyla aynı.
+    final ordered = settings.playlistReverseOrder
+        ? rawEntries
+        : rawEntries.reversed.toList();
+
+    final totalCount = ordered.length;
+    final limited = totalCount > maxPlaylistEntries
+        ? ordered.sublist(0, maxPlaylistEntries)
+        : ordered;
+
+    final downloadedVideos =
+        await StorageManager.instance.scanDownloadedVideos();
+
+    final entries = <PlaylistEntry>[];
+    for (var i = 0; i < limited.length; i++) {
+      final entry = _normalizePlaylistEntry(limited[i], i, downloadedVideos);
+      if (entry != null) entries.add(entry);
+    }
+
+    if (totalCount > entries.length) {
+      debugPrint('[DownloadProvider] bağlantı $totalCount video içeriyor; '
+          '${entries.length} tanesi listelendi');
+    }
+
+    return PlaylistFetchResult(
+      entries: entries,
+      totalCount: totalCount,
+      sourceUrl: url,
+    );
+  }
+
+  /// Ham native girdisini temizler; kullanılamaz girdide null döner.
+  /// (Eskiden bu mantık _addPlaylistDownload döngüsünün içine gömülüydü.)
+  PlaylistEntry? _normalizePlaylistEntry(
+    Map<String, dynamic> raw,
+    int index,
+    List<VideoItem> downloadedVideos,
+  ) {
+    final videoUrl = (raw['url'] as String? ?? '').trim();
+    if (videoUrl.isEmpty || videoUrl.toLowerCase() == 'null') return null;
+
+    var title = (raw['title'] as String? ?? '').trim();
+    final lowerTitle = title.toLowerCase();
+    if (lowerTitle.contains('[deleted') ||
+        lowerTitle.contains('[private') ||
+        lowerTitle.contains('[unavailable')) {
+      return null;
+    }
+
+    final vid = VideoItem.extractVideoId(videoUrl);
+    if (title.isEmpty || lowerTitle == 'null' || lowerTitle == 'null null') {
+      title = vid != null ? 'Video ($vid)' : 'Video ${index + 1}';
+    }
+
+    var thumbnail = (raw['thumbnail'] as String? ?? '').trim();
+    if (thumbnail.isEmpty || thumbnail.toLowerCase() == 'null') {
+      thumbnail =
+          vid != null ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg' : '';
+    }
+
+    var uploader = (raw['uploader'] as String? ?? '').trim();
+    if (uploader.toLowerCase() == 'null') uploader = '';
+
+    final inQueue = _tasks.any((t) {
+      final tVid = VideoItem.extractVideoId(t.url);
+      return t.url == videoUrl || (vid != null && tVid == vid);
+    });
+    final inLibrary = downloadedVideos.any(
+      (v) => v.sourceUrl == videoUrl || (vid != null && v.youtubeId == vid),
+    );
+
+    return PlaylistEntry(
+      url: videoUrl,
+      title: title,
+      durationSeconds: (raw['duration'] as num?)?.toInt() ?? 0,
+      thumbnail: thumbnail.isNotEmpty ? thumbnail : null,
+      uploader: uploader.isNotEmpty ? uploader : null,
+      alreadyPresent: inQueue || inLibrary,
+    );
+  }
+
+  /// Kullanıcının seçtiği videoları kuyruğa ekler.
+  ///
+  /// Dönüş: `null` = hepsi eklendi · metin = kullanıcıya gösterilecek BİLGİ
+  /// (hata değil). Kota nedeniyle atlananlar her durumda bildirilir.
+  Future<String?> addSelectedEntries({
+    required List<PlaylistEntry> entries,
+    required AppSettings settings,
+    required String sourcePlaylistUrl,
+    int truncatedCount = 0,
+    int totalCount = 0,
+  }) async {
+    if (entries.isEmpty) return 'Seçili video yok.';
+
+    final downloadedVideos =
+        await StorageManager.instance.scanDownloadedVideos();
+    int runningTotalSec = downloadedVideos.fold<int>(
+        0, (sum, v) => sum + (v.durationSeconds ?? 0));
+    final maxDurationSec = settings.maxVideoDurationHours * 3600;
+
+    int addedCount = 0;
+    int skippedCount = 0;
+    int unknownDurationCount = 0;
+
+    for (var i = 0; i < entries.length; i++) {
+      final entry = entries[i];
+
+      // FIX(quota-exemption): süresi bilinmeyen video kotadan MUAF DEĞİL.
+      // Önceki `duration > 0 &&` koşulu onları kapı dışında bırakıyordu ve
+      // --flat-playlist süreyi çoğu zaman döndürmediği için kota sessizce
+      // aşılabiliyordu.
+      final effectiveDuration = entry.hasDuration
+          ? entry.durationSeconds
+          : defaultVideoDurationSeconds;
+      if (!entry.hasDuration) unknownDurationCount++;
+
+      if ((runningTotalSec + effectiveDuration) > maxDurationSec) {
+        skippedCount++;
+        continue;
+      }
+
+      runningTotalSec += effectiveDuration;
+      _tasks.add(DownloadTask(
+        id: '${DateTime.now().millisecondsSinceEpoch}_$i',
+        url: entry.url,
+        title: entry.title,
+        thumbnail: entry.thumbnail,
+        durationSeconds: entry.durationSeconds,
+        uploader: entry.uploader,
+        status: DownloadStatus.queued,
+        sourcePlaylistUrl: sourcePlaylistUrl,
+      ));
+      addedCount++;
+    }
+
+    if (unknownDurationCount > 0) {
+      debugPrint('[DownloadProvider] $unknownDurationCount videonun süresi '
+          'bilinmiyor; kota hesabında her biri '
+          '$defaultVideoDurationSeconds sn tahminiyle sayıldı');
+    }
+
+    await _saveTasksToStorage();
+    notifyListeners();
+
+    if (!_isQueuePaused) {
+      await processNextQueue(settings: settings);
+    }
+
+    final truncationNote = truncatedCount > 0
+        ? ' Bağlantı $totalCount video içeriyor; tek seferde en fazla '
+            '$maxPlaylistEntries video listelendiği için kalan $truncatedCount '
+            'video dışarıda kaldı.'
+        : '';
+
+    if (addedCount == 0 && skippedCount > 0) {
+      return 'Seçilen videoların tamamı ($skippedCount adet) belirlenen toplam '
+          'süre kotasını (${settings.maxVideoDurationHours} sa) aşacağı için '
+          'eklenmedi.$truncationNote';
+    }
+
+    // Kısmi atlama HER zaman bildirilir: kullanıcı kaç videonun girdiğini ve
+    // kaçının kotaya takıldığını bilmeli.
+    if (skippedCount > 0) {
+      return 'ℹ️ $addedCount video kuyruğa eklendi. $skippedCount video, '
+          'toplam süre kotasını (${settings.maxVideoDurationHours} sa) aşacağı '
+          'için atlandı.$truncationNote';
+    }
+
+    if (truncatedCount > 0) {
+      return 'ℹ️ $addedCount video kuyruğa eklendi.$truncationNote';
+    }
+
+    return null;
+  }
+
+  /// Bağlantıdaki tüm uygun videoları seçim ekranı olmadan kuyruğa ekler.
+  /// Seçmeli akış için [resolvePlaylist] + [addSelectedEntries] kullanılır.
   Future<String?> _addPlaylistDownload({
     required String url,
     required AppSettings settings,
@@ -1065,111 +1296,22 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
 
     try {
-      final entries = await NativeBridge.instance.fetchPlaylistEntries(url);
+      final result = await resolvePlaylist(url: url, settings: settings);
       _tasks.removeWhere((t) => t.id == tempId);
 
-      if (entries.isEmpty) {
+      if (result.entries.isEmpty) {
         _saveTasksToStorage();
         notifyListeners();
         return 'Oynatma listesinde indirilebilir video bulunamadı.';
       }
 
-      final downloadedVideos =
-          await StorageManager.instance.scanDownloadedVideos();
-      int runningTotalSec = downloadedVideos.fold<int>(
-          0, (sum, v) => sum + (v.durationSeconds ?? 0));
-      final maxDurationSec = settings.maxVideoDurationHours * 3600;
-      int addedCount = 0;
-      int skippedCount = 0;
-
-      // fetchPlaylistEntries returns entries in YouTube's default (newest-first) order,
-      // so reversing is only needed when the setting is OFF (oldest first).
-      // Mirrors syncSavedPlaylists ordering.
-      final effectiveEntries = settings.playlistReverseOrder
-          ? entries
-          : entries.reversed.toList();
-
-      for (int i = 0; i < effectiveEntries.length; i++) {
-        final entry = effectiveEntries[i];
-        final videoUrl = (entry['url'] as String? ?? '').trim();
-        var title = (entry['title'] as String? ?? '').trim();
-        final duration = (entry['duration'] as num?)?.toInt() ?? 0;
-        var thumbnail = (entry['thumbnail'] as String? ?? '').trim();
-        var uploader = (entry['uploader'] as String? ?? '').trim();
-
-        if (videoUrl.isEmpty || videoUrl.toLowerCase() == 'null') continue;
-
-        final lowerTitle = title.toLowerCase();
-        if (lowerTitle.contains('[deleted') ||
-            lowerTitle.contains('[private') ||
-            lowerTitle.contains('[unavailable')) {
-          continue;
-        }
-
-        if (title.isEmpty || lowerTitle == 'null' || lowerTitle == 'null null') {
-          final vid = VideoItem.extractVideoId(videoUrl);
-          title = vid != null ? 'Video ($vid)' : 'Video ${i + 1}';
-        }
-
-        if (thumbnail.isEmpty || thumbnail.toLowerCase() == 'null') {
-          final vid = VideoItem.extractVideoId(videoUrl);
-          thumbnail = vid != null ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg' : '';
-        }
-
-        if (uploader.toLowerCase() == 'null') {
-          uploader = '';
-        }
-
-        // Check if already in queue or downloaded
-        final entryVid = VideoItem.extractVideoId(videoUrl);
-        final isAlreadyInQueue = _tasks.any((t) {
-          final tVid = VideoItem.extractVideoId(t.url);
-          return t.url == videoUrl || (entryVid != null && tVid == entryVid);
-        });
-        final isAlreadyDownloaded = downloadedVideos.any((v) {
-          return v.sourceUrl == videoUrl || (entryVid != null && v.youtubeId == entryVid);
-        });
-
-        if (isAlreadyInQueue || isAlreadyDownloaded) {
-          continue; // Skip duplicate video
-        }
-
-        if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) {
-          skippedCount++;
-          continue;
-        }
-
-        runningTotalSec += duration;
-        final taskId = '${DateTime.now().millisecondsSinceEpoch}_$i';
-        final newTask = DownloadTask(
-          id: taskId,
-          url: videoUrl,
-          title: title,
-          thumbnail: thumbnail.isNotEmpty ? thumbnail : null,
-          durationSeconds: duration,
-          uploader: uploader.isNotEmpty ? uploader : null,
-          status: DownloadStatus.queued,
-          // FIX(sync): Görevin kaynak listesini işaretle — senkron temizliği
-          // yalnızca bu listeye ait görevleri kaldırabilir.
-          sourcePlaylistUrl: url,
-        );
-
-        _tasks.add(newTask);
-        addedCount++;
-      }
-
-      await _saveTasksToStorage();
-      notifyListeners();
-
-      if (!_isQueuePaused) {
-        await processNextQueue(settings: settings);
-      }
-
-      if (addedCount == 0 && skippedCount > 0) {
-        return 'Tüm videolar ($skippedCount adet) belirlenen toplam süre kotasını (${settings.maxVideoDurationHours} sa) aşacağı için eklenmedi.';
-      }
-
-      return null;
+      return await addSelectedEntries(
+        entries: result.selectableEntries,
+        settings: settings,
+        sourcePlaylistUrl: url,
+        truncatedCount: result.truncatedCount,
+        totalCount: result.totalCount,
+      );
     } catch (e) {
       loadingTask.status = DownloadStatus.error;
       loadingTask.errorMessage = 'Hata: ${cleanErrorMessage(e)}';
@@ -1399,6 +1541,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       _saveTasksToStorage();
       notifyListeners();
       await NativeBridge.instance.pauseDownload(taskId);
+      // FIX(queue-stall): pausing ONE task used to stall the WHOLE queue —
+      // the active slot was freed but nothing pulled the next item, so the
+      // queue only resumed on an unrelated event (settings/connectivity change).
+      _triggerNextQueue();
     }
   }
 

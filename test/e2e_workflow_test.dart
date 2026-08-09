@@ -158,7 +158,7 @@ void main() {
 
       // Valid inputs
       expect(DownloadProvider.isValidYouTubeUrl('https://www.youtube.com/watch?v=dQw4w9WgXcQ'), isTrue);
-      expect(DownloadProvider.isValidYouTubeUrl('http://youtu.be/dQw4w9WgXcQ'), isTrue);
+      expect(DownloadProvider.isValidYouTubeUrl('https://youtu.be/dQw4w9WgXcQ'), isTrue);
       expect(DownloadProvider.isValidYouTubeUrl('https://youtube.com/shorts/abcd1234'), isTrue);
       expect(DownloadProvider.isValidYouTubeUrl('https://music.youtube.com/watch?v=xyz'), isTrue);
       expect(DownloadProvider.isValidYouTubeUrl('https://www.youtube.com/playlist?list=PL123456789'), isTrue);

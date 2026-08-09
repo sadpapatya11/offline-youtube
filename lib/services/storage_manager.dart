@@ -20,6 +20,20 @@ class StorageManager {
   Future<void> initDirectory([String? customPath]) async {
     if (customPath != null && customPath.isNotEmpty) {
       _currentDownloadPath = customPath;
+    } else {
+      // FIX(storage): Download/.offlineyoutube MediaProvider tarafından
+      // yönetilir; silinen dosyalar .trash'e taşınır ve isimleri FUSE'da
+      // kilitli kalır — yt-dlp'nin .part -> final rename'i "Operation not
+      // permitted"/"File exists" ile patlar. App-private klasörde
+      // MediaProvider yok: rename serbest ve içerik galeriye görünmez.
+      try {
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null) {
+          _currentDownloadPath = '${extDir.path}/offlineyoutube';
+        }
+      } catch (_) {
+        // Fallback: defaultHiddenPath kullanılmaya devam edilir
+      }
     }
 
     try {

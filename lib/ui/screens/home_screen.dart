@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../models/app_settings.dart';
+import '../../models/playlist_entry.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
+import 'playlist_selection_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onNavigateToQueue;
@@ -67,6 +70,22 @@ class _HomeScreenState extends State<HomeScreen> {
     final settingsProvider = context.read<SettingsProvider>();
     final libraryProvider = context.read<LibraryProvider>();
 
+    // Oynatma listesi / kanal bağlantısı: liste SESSİZCE kuyruğa dökülmez.
+    // Önce çözümlenir, kullanıcı seçim ekranında ne indireceğine karar verir.
+    if (DownloadProvider.isPlaylistUrl(cleanUrl)) {
+      try {
+        await _handlePlaylistSelection(
+            cleanUrl, downloadProvider, settingsProvider.settings);
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isProcessing = false;
+          });
+        }
+      }
+      return;
+    }
+
     final error = await downloadProvider.addDownload(
       url: cleanUrl,
       settings: settingsProvider.settings,
@@ -103,6 +122,85 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     }
+  }
+
+  /// Oynatma listesi / kanal akışı: çözümle → kullanıcıya seçtir → kuyruğa ekle.
+  ///
+  /// Bağlantı verilir verilmez listenin tamamını kuyruğa dökmek yerine araya
+  /// seçim ekranı girer. İptal edilirse hiçbir şey eklenmez.
+  Future<void> _handlePlaylistSelection(
+    String url,
+    DownloadProvider downloadProvider,
+    AppSettings settings,
+  ) async {
+    final PlaylistFetchResult result;
+    try {
+      result =
+          await downloadProvider.resolvePlaylist(url: url, settings: settings);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'Oynatma listesi okunamadı: ${DownloadProvider.cleanErrorMessage(e)}'),
+          backgroundColor: const Color(0xFF330000),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    if (result.entries.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bu bağlantıda indirilebilir video bulunamadı.'),
+          backgroundColor: Color(0xFF330000),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    final selected = await Navigator.of(context).push<List<PlaylistEntry>>(
+      MaterialPageRoute(
+        builder: (_) => PlaylistSelectionScreen(result: result),
+      ),
+    );
+
+    if (!mounted) return;
+    // null = iptal, boş = hiçbir şey seçilmedi. İkisinde de kuyruğa dokunulmaz.
+    if (selected == null || selected.isEmpty) return;
+
+    final message = await downloadProvider.addSelectedEntries(
+      entries: selected,
+      settings: settings,
+      sourcePlaylistUrl: result.sourceUrl,
+      truncatedCount: result.truncatedCount,
+      totalCount: result.totalCount,
+    );
+
+    if (!mounted) return;
+
+    _urlController.clear();
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    // "ℹ️" ile başlayan metin bilgi mesajıdır (kısmi ekleme), hata değil.
+    final isInfo = message == null || message.startsWith('ℹ️');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message ??
+            '⚡ ${selected.length} video kuyruğa eklendi, indirme başladı!'),
+        backgroundColor:
+            isInfo ? const Color(0xFF003311) : const Color(0xFF330000),
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'Kuyruğu Gör',
+          textColor: AmoledTheme.pureWhite,
+          onPressed: widget.onNavigateToQueue,
+        ),
+      ),
+    );
   }
 
   @override
@@ -260,7 +358,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             children: [
                               IconButton(
                                 icon: const Icon(Icons.download_rounded, color: AmoledTheme.pureWhite),
-                                tooltip: 'En Yenileri İndir',
+                                tooltip: 'Listeyi Aç ve İndirilecekleri Seç',
                                 onPressed: () => _triggerDownload(url),
                               ),
                               IconButton(

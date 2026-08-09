@@ -872,11 +872,15 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       return 'YouTube istek sınırı aşıldı. Uygulama otomatik yeniden deneyecek.';
     }
 
-    // Depolama / Dosya Sistemi Hatası
+    // Depolama / Dosya Sistemi Hatası (invalid argument tek başına yeterli değil, dosya bağlamıyla birlikte olmalı)
     if (result.contains('Errno 2') ||
+        result.contains('Errno 22') ||
         result.toLowerCase().contains('no such file or directory') ||
-        result.toLowerCase().contains('invalid argument') ||
-        result.toLowerCase().contains('filename too long')) {
+        result.toLowerCase().contains('filename too long') ||
+        (result.toLowerCase().contains('invalid argument') &&
+            (result.toLowerCase().contains('file') ||
+             result.toLowerCase().contains('path') ||
+             result.toLowerCase().contains('errno')))) {
       final rawHint = result.length > 400 ? result.substring(0, 400) : result;
       return 'Depolama dosya adı biçimlendirme hatası (Karakterler otomatik düzeltildi, yeniden deneyin).\nHam hata: $rawHint';
     }

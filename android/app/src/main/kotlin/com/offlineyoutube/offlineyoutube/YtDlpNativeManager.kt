@@ -104,7 +104,7 @@ object YtDlpNativeManager {
                 addOption(
                     "--extractor-args",
                     if (isPlaylist) "youtube:lang=tr"
-                    else "youtube:player_client=ios,android,mweb,web;player_skip=configs,webpage;lang=tr"
+                    else "youtube:player_client=ios,android,web;lang=tr"
                 )
                 addOption("--geo-bypass-country", "TR")
                 addOption("--sleep-requests", "1.5")
@@ -287,7 +287,7 @@ object YtDlpNativeManager {
                 addOption("--no-cache-dir")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
                 addOption("--user-agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
-                addOption("--extractor-args", "youtube:player_client=ios,android,mweb,web;player_skip=configs,webpage;lang=tr")
+                addOption("--extractor-args", "youtube:player_client=ios,android,web;lang=tr")
                 addOption("--geo-bypass-country", "TR")
                 addOption("--sleep-requests", "1.5")
                 addOption("--sleep-subtitles", "1")

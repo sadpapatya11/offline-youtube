@@ -18,7 +18,9 @@ class StorageManager {
   String get trashPath => '$_currentDownloadPath/.trash';
 
   Future<void> initDirectory([String? customPath]) async {
-    if (customPath != null && customPath.isNotEmpty) {
+    // Eski gizli klasör yolu sorunlara yol açtığı için, kullanıcı ayarlarında
+    // kayıtlı olsa bile bunu yoksay ve güvenli app-private klasöre zorla.
+    if (customPath != null && customPath.isNotEmpty && customPath != defaultHiddenPath) {
       _currentDownloadPath = customPath;
     } else {
       // FIX(storage): Download/.offlineyoutube MediaProvider tarafından

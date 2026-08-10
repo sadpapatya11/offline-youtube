@@ -22,7 +22,7 @@ class Colors:
 def run_command(command, description):
     print(f"{Colors.OKBLUE}[*] {description}...{Colors.ENDC}")
     try:
-        result = subprocess.run(command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(command, shell=True, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace')
         print(f"{Colors.OKGREEN}[+] Başarılı: {description}{Colors.ENDC}")
         return True, result.stdout
     except subprocess.CalledProcessError as e:

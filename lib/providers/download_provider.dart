@@ -887,7 +887,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
              result.toLowerCase().contains('path') ||
              result.toLowerCase().contains('errno')))) {
       final rawHint = result.length > 400 ? result.substring(0, 400) : result;
-      return 'Depolama dosya adı biçimlendirme hatası (Karakterler otomatik düzeltildi, yeniden deneyin).\nHam hata: $rawHint';
+      return 'Depolama erişim hatası: Klasör bulunamadı veya yazma izni reddedildi. Uygulamayı yeniden başlatarak otomatik düzeltilmesini sağlayın.\nHam hata: $rawHint';
     }
 
     // Remove yt-dlp update warnings

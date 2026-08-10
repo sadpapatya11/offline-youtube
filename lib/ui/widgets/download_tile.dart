@@ -333,6 +333,24 @@ class DownloadTile extends StatelessWidget {
           ),
         ],
       );
+    } else if (task.status == DownloadStatus.cancelled || task.status == DownloadStatus.error) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded,
+                color: Color(0xFF64B5F6), size: 24),
+            onPressed: onResume,
+            tooltip: 'Yeniden Başlat',
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline,
+                color: Color(0xFF888888), size: 22),
+            onPressed: onDelete,
+            tooltip: 'Listeden Kaldır',
+          ),
+        ],
+      );
     } else {
       return IconButton(
         icon: const Icon(Icons.delete_outline,

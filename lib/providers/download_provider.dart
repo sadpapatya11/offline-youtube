@@ -1004,7 +1004,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     // Check if already downloaded
     final downloadedVideos = await StorageManager.instance.scanDownloadedVideos();
     final isAlreadyDownloaded = downloadedVideos.any((v) {
-      return v.sourceUrl == url || (videoId != null && v.youtubeId == videoId);
+      return v.sourceUrl == url || 
+             (videoId != null && (v.youtubeId == videoId || v.id == videoId));
     });
     if (isAlreadyDownloaded) {
       return 'Bu video zaten indirilmiş durumda.';
@@ -1147,7 +1148,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           return t.url == videoUrl || (entryVid != null && tVid == entryVid);
         });
         final isAlreadyDownloaded = downloadedVideos.any((v) {
-          return v.sourceUrl == videoUrl || (entryVid != null && v.youtubeId == entryVid);
+          return v.sourceUrl == videoUrl || 
+                 (entryVid != null && (v.youtubeId == entryVid || v.id == entryVid));
         });
 
         if (isAlreadyInQueue || isAlreadyDownloaded) {

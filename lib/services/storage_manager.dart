@@ -249,7 +249,8 @@ class StorageManager {
       return list
           .map((item) => TrashedVideoItem.fromJson(item as Map<String, dynamic>))
           .toList();
-    } catch (e) {
+    } catch (e, s) {
+      print('ERROR in loadTrashIndex: $e\n$s');
       return [];
     }
   }
@@ -259,8 +260,8 @@ class StorageManager {
       final file = _trashIndexFile;
       final jsonList = items.map((i) => i.toJson()).toList();
       await file.writeAsString(jsonEncode(jsonList));
-    } catch (e) {
-      // Non-fatal
+    } catch (e, s) {
+      print('ERROR in _saveTrashIndex: $e\n$s');
     }
   }
 
@@ -346,9 +347,10 @@ class StorageManager {
       await _saveTrashIndex(currentTrash);
 
       return true;
-    } catch (e) {
+    } catch (e, s) {
       // FIX(atomicity): Kritik adımlar yukarıda ayrı try bloklarıyla
       // korunduğundan buraya yalnızca istisnai durumlarda düşülür.
+      print('ERROR in moveToTrash: $e\n$s');
       return false;
     }
   }
@@ -422,7 +424,8 @@ class StorageManager {
 
       await _saveTrashIndex(activeTrash);
       return activeTrash;
-    } catch (e) {
+    } catch (e, s) {
+      print('ERROR in purgeExpiredTrash: $e\n$s');
       return [];
     }
   }

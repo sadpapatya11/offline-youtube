@@ -343,24 +343,33 @@ object YtDlpNativeManager {
             val response: YoutubeDLResponse = YoutubeDL.getInstance().execute(
                 request,
                 taskId
-            ) { progress, etaInSeconds, line ->
+            ) { callbackProgress, etaInSeconds, line ->
                 val now = System.currentTimeMillis()
-                val delta = Math.abs(progress - lastProgressPercent)
+                
+                var currentProgress = callbackProgress
+                var speed = ""
+                var totalSize = ""
+                var downloadedSize = ""
+                
+                if (line != null && line.contains("[download]")) {
+                    speed = parseSpeed(line)
+                    totalSize = parseTotalSize(line)
+                    downloadedSize = parseDownloadedSize(line, totalSize)
+                    val m = DOWNLOADED_PERCENT_PATTERN.matcher(line)
+                    if (m.find()) {
+                        m.group(1).toFloatOrNull()?.let {
+                            currentProgress = it
+                        }
+                    }
+                }
+
+                val delta = Math.abs(currentProgress - lastProgressPercent)
                 
                 // Source-level native callback throttling: parse strings ONLY on meaningful progress or timeout
-                if (progress >= 100f || (now - lastProgressEmitTime >= 800L && delta >= 0.5f) || (now - lastProgressEmitTime >= 2500L)) {
+                if (currentProgress >= 100f || (now - lastProgressEmitTime >= 800L && delta >= 0.5f) || (now - lastProgressEmitTime >= 2500L)) {
                     lastProgressEmitTime = now
-                    lastProgressPercent = progress
-                    
-                    var speed = ""
-                    var totalSize = ""
-                    var downloadedSize = ""
-                    if (line != null && line.contains("[download]")) {
-                        speed = parseSpeed(line)
-                        totalSize = parseTotalSize(line)
-                        downloadedSize = parseDownloadedSize(line, totalSize)
-                    }
-                    onProgress(progress, etaInSeconds, speed, totalSize, downloadedSize)
+                    lastProgressPercent = currentProgress
+                    onProgress(currentProgress, etaInSeconds, speed, totalSize, downloadedSize)
                 }
             }
 

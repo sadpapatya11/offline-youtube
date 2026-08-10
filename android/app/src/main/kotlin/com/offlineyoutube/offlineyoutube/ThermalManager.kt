@@ -85,7 +85,11 @@ object ThermalManager {
                 addAction(Intent.ACTION_SCREEN_ON)
                 addAction(Intent.ACTION_BATTERY_CHANGED)
             }
-            appContext.registerReceiver(thermalReceiver, filter)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                appContext.registerReceiver(thermalReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                appContext.registerReceiver(thermalReceiver, filter)
+            }
             isRegistered = true
             Log.i(TAG, "ThermalManager initialized. Initial status: ${getThermalStatusName(currentThermalStatus.get())}")
         } catch (e: Exception) {

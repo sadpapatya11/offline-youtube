@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import '../models/trashed_video_item.dart';
 import '../models/video_item.dart';
@@ -250,7 +251,7 @@ class StorageManager {
           .map((item) => TrashedVideoItem.fromJson(item as Map<String, dynamic>))
           .toList();
     } catch (e, s) {
-      print('ERROR in loadTrashIndex: $e\n$s');
+      debugPrint('ERROR in loadTrashIndex: $e\n$s');
       return [];
     }
   }
@@ -261,7 +262,7 @@ class StorageManager {
       final jsonList = items.map((i) => i.toJson()).toList();
       await file.writeAsString(jsonEncode(jsonList));
     } catch (e, s) {
-      print('ERROR in _saveTrashIndex: $e\n$s');
+      debugPrint('ERROR in _saveTrashIndex: $e\n$s');
     }
   }
 
@@ -350,7 +351,7 @@ class StorageManager {
     } catch (e, s) {
       // FIX(atomicity): Kritik adımlar yukarıda ayrı try bloklarıyla
       // korunduğundan buraya yalnızca istisnai durumlarda düşülür.
-      print('ERROR in moveToTrash: $e\n$s');
+      debugPrint('ERROR in moveToTrash: $e\n$s');
       return false;
     }
   }
@@ -425,7 +426,7 @@ class StorageManager {
       await _saveTrashIndex(activeTrash);
       return activeTrash;
     } catch (e, s) {
-      print('ERROR in purgeExpiredTrash: $e\n$s');
+      debugPrint('ERROR in purgeExpiredTrash: $e\n$s');
       return [];
     }
   }

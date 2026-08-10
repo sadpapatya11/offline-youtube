@@ -27,16 +27,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pasteAndAutoDownload() async {
-    final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (!mounted) return;
-    final text = data?.text?.trim();
-    if (text != null && text.isNotEmpty && DownloadProvider.isValidYouTubeUrl(text)) {
-      _urlController.text = text;
-      _triggerDownload(text);
+    String? textToUse;
+
+    // Eğer kutuda bir metin varsa onu kullan
+    if (_urlController.text.trim().isNotEmpty) {
+      textToUse = _urlController.text.trim();
+    } else {
+      // Yoksa panodan al
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      if (!mounted) return;
+      textToUse = data?.text?.trim();
+    }
+
+    if (textToUse != null && textToUse.isNotEmpty && DownloadProvider.isValidYouTubeUrl(textToUse)) {
+      _urlController.text = textToUse;
+      _triggerDownload(textToUse);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Panoda geçerli bir YouTube bağlantısı bulunamadı.'),
+          content: Text('Lütfen geçerli bir YouTube bağlantısı girin veya kopyalayın.'),
           backgroundColor: Color(0xFF330000),
           duration: Duration(seconds: 2),
         ),

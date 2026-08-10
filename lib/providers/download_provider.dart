@@ -791,6 +791,21 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
     }
+    
+    // 2. Eğer URL formatında değilse (http ile başlamıyorsa), kullanıcı muhtemelen 
+    // eksik bir link kopyaladı (örneğin sadece "W_XeikiQY_y2&si=..." gibi bir ID kısmı)
+    final cleanInput = input.trim();
+    if (!cleanInput.toLowerCase().startsWith('http')) {
+      // & veya ? işaretinden sonrasını (parametreleri) at
+      var rawId = cleanInput.split('&')[0].split('?')[0];
+      
+      // Sadece a-z, A-Z, 0-9, _, - karakterlerini içeriyorsa bu muhtemelen bir video ID'sidir
+      // (10-12 karakter uzunluğundaysa)
+      if (RegExp(r'^[a-zA-Z0-9_-]{10,12}$').hasMatch(rawId)) {
+        return 'https://youtu.be/$rawId';
+      }
+    }
+    
     return null;
   }
 

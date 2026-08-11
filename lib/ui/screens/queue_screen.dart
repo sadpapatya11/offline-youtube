@@ -192,16 +192,16 @@ class QueueScreenState extends State<QueueScreen> with SingleTickerProviderState
             ),
           ),
           FloatingActionButton(
-            backgroundColor: isQueuePaused ? Colors.red : Colors.green,
+            backgroundColor: isQueuePaused ? Colors.green : Colors.red,
             onPressed: () => _toggleQueueState(downloadProvider, settingsProvider),
             child: isQueuePaused
-                ? const Icon(Icons.pause_rounded, color: Colors.white, size: 28)
+                ? const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 32)
                 : AnimatedBuilder(
                     animation: _animController,
                     builder: (context, child) {
                       return Transform.translate(
                         offset: Offset(_iconMoveAnim.value, 0),
-                        child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 32),
+                        child: const Icon(Icons.pause_rounded, color: Colors.white, size: 28),
                       );
                     },
                   ),

@@ -684,29 +684,35 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         // 1. Ağ kontrolü
         final netCheck = await NetworkManager.instance
-            .checkNetworkPermissionAndStatus(currentSettings);
+            .checkNetworkPermissionAndStatus(currentSettings)
+            .timeout(const Duration(seconds: 5), onTimeout: () => {'allowed': false, 'reason': 'Ağ kontrolü zaman aşımına uğradı.'});
         if (netCheck['allowed'] != true) {
           _isWifiWaiting =
               currentSettings.networkMode == NetworkRestrictionMode.anyWifi;
+          _failNextTaskIfAny(netCheck['reason'] ?? 'Ağ izni yok.');
           notifyListeners();
           return;
         }
 
         // 2. Depolama kotası kontrolü
         final maxBytes = currentSettings.maxStorageLimitGB * 1024 * 1024 * 1024;
-        final usedBytes = await StorageManager.instance.getUsedStorageBytes();
+        final usedBytes = await StorageManager.instance.getUsedStorageBytes()
+            .timeout(const Duration(seconds: 5), onTimeout: () => 0);
         if (usedBytes >= maxBytes) {
+          _failNextTaskIfAny('Depolama kotası doldu (${currentSettings.maxStorageLimitGB} GB).');
           notifyListeners();
           return;
         }
 
         // 3. Toplam video süresi kotası kontrolü
         final downloadedVideos =
-            await StorageManager.instance.scanDownloadedVideos();
+            await StorageManager.instance.scanDownloadedVideos()
+            .timeout(const Duration(seconds: 10), onTimeout: () => []);
         final totalDurationSec = downloadedVideos.fold<int>(
             0, (sum, v) => sum + (v.durationSeconds ?? 0));
         final maxDurationSec = currentSettings.maxVideoDurationHours * 3600;
         if (totalDurationSec >= maxDurationSec) {
+          _failNextTaskIfAny('Video süresi kotası doldu (${currentSettings.maxVideoDurationHours} saat).');
           notifyListeners();
           return;
         }
@@ -761,6 +767,16 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       }
     } finally {
       _isProcessingQueue = false;
+    }
+  }
+
+  void _failNextTaskIfAny(String errorMessage) {
+    final nextTaskIndex = _tasks.indexWhere((t) => t.status == DownloadStatus.queued);
+    if (nextTaskIndex != -1) {
+      _tasks[nextTaskIndex].status = DownloadStatus.error;
+      _tasks[nextTaskIndex].hadPreviousError = true;
+      _tasks[nextTaskIndex].errorMessage = errorMessage;
+      _saveTasksToStorage();
     }
   }
 

@@ -299,15 +299,12 @@ object YtDlpNativeManager {
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
                 // Safe formatting: 50-char max title (50 chars * up to 4 bytes/char = 200 bytes) + unique video id keeps the full filename, incl. sidecar suffixes like [id].f137.mp4.part, under Android's 255-byte filename limit without slicing multi-byte UTF-8 chars
                 addOption("-o", "${outputDir.absolutePath}/%(title).50s [%(id)s].%(ext)s")
-                // FIX(format): iOS client çoğunlukla mp4 (avc1/mp4a) servis eder;
-                // önce bu kombinasyonu hedefle. Eski desende "bestvideo[ext=mp4]"
-                // avc1 olmayan (vp9) mp4'leri de seçebiliyor, o da ffmpeg merge
-                // sırasında -c copy ile mp4 çıktısına dönüştürülemeyip sessizce
-                // başarısız olabiliyordu.
-                addOption("-f", "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a][acodec^=mp4a]/best[ext=mp4]/best")
+                // Automatically pick the highest resolution video (including 4K/8K VP9/AV1)
+                // and the best audio, and merge them into an MKV container for maximum compatibility.
+                addOption("-f", "bestvideo+bestaudio/best")
                 
                 // 1. Zero-Reencode FFmpeg Remuxing (Direct container stream copy with thread cap)
-                addOption("--merge-output-format", "mp4")
+                addOption("--merge-output-format", "mkv")
                 addOption("--postprocessor-args", "ffmpeg:-threads $ffmpegThreads -c copy")
                 
                 // 2. Single fragment stream to eliminate Wi-Fi modem saturation & multi-thread CPU bursts

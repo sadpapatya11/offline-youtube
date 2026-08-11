@@ -43,6 +43,7 @@ dependencies:
   path: ^1.9.1
   intl: ^0.20.2
   wakelock_plus: ^1.2.8
+  webview_flutter: ^4.14.1
 
 dev_dependencies:
   flutter_test:

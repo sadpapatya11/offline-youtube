@@ -20,6 +20,7 @@ import java.util.regex.Pattern
 object YtDlpNativeManager {
     private const val TAG = "YtDlpNativeManager"
     private var isInitialized = false
+    private var appContext: Context? = null
     private val activeTasks = ConcurrentHashMap<String, String>() // taskId -> taskId
     private val intentionallyStoppedTasks = ConcurrentHashMap.newKeySet<String>()
     // FIX(race): Her görev için "durdurma nesli" sayacı. stopDownload() sayacı
@@ -41,6 +42,7 @@ object YtDlpNativeManager {
 
     fun init(context: Context) {
         if (isInitialized) return
+        appContext = context.applicationContext
         try {
             ThermalManager.init(context.applicationContext)
             YoutubeDL.getInstance().init(context.applicationContext)
@@ -149,6 +151,12 @@ object YtDlpNativeManager {
                 addOption("--sleep-requests", "1.0")
                 addOption("--flat-playlist")
                 addOption("-J")
+                appContext?.let { ctx ->
+                    val cookieFile = CookieHelper.saveCookies(ctx)
+                    if (cookieFile != null && cookieFile.exists()) {
+                        addOption("--cookies", cookieFile.absolutePath)
+                    }
+                }
             }
             val response = YoutubeDL.getInstance().execute(request)
             val jsonStr = response.out
@@ -162,13 +170,10 @@ object YtDlpNativeManager {
                         val item = rawArray.optJSONObject(i) ?: continue
                         val itemId = item.optString("id", "").trim()
                         var itemTitle = item.optString("title", "").trim()
-                        if (itemTitle.isEmpty() || itemTitle.equals("null", ignoreCase = true)) {
-                            itemTitle = if (itemId.isNotEmpty()) "Video ($itemId)" else "Video ${i + 1}"
-                        }
-
+                        
                         // Skip deleted/private/unavailable videos
                         val lowerTitle = itemTitle.lowercase()
-                        if (lowerTitle.contains("[deleted") || lowerTitle.contains("[private") || lowerTitle.contains("[unavailable")) {
+                        if (itemTitle.isEmpty() || itemTitle.equals("null", ignoreCase = true) || lowerTitle.contains("[deleted") || lowerTitle.contains("[private") || lowerTitle.contains("[unavailable")) {
                             continue
                         }
 
@@ -321,6 +326,12 @@ object YtDlpNativeManager {
                 addOption("--continue")
                 addOption("--ignore-errors")
                 addOption("--no-playlist")
+                appContext?.let { ctx ->
+                    val cookieFile = CookieHelper.saveCookies(ctx)
+                    if (cookieFile != null && cookieFile.exists()) {
+                        addOption("--cookies", cookieFile.absolutePath)
+                    }
+                }
                 
                 // 5. Türkçe Altyazı (Sidecar .vtt/.srt files - no video re-encoding)
                 addOption("--write-subs")

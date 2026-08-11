@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:offlineyoutube/ui/screens/youtube_login_screen.dart';
 import '../../models/app_settings.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/settings_provider.dart';
@@ -151,6 +152,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                           )
                         : const Text('Güncelle'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // 1.5 YouTube Giriş Yap (Çerez Entegrasyonu)
+            AmoledCard(
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AmoledTheme.brandRed.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.login_rounded,
+                      color: AmoledTheme.brandRed,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'YouTube\'a Giriş Yap',
+                          style: TextStyle(
+                            color: AmoledTheme.pureWhite,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Yaş kısıtlamalı ve gizli videoları indirmek için oturum açın.',
+                          style: TextStyle(color: AmoledTheme.subText, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const YoutubeLoginScreen()),
+                      );
+                    },
+                    child: const Text('Giriş Yap'),
                   ),
                 ],
               ),

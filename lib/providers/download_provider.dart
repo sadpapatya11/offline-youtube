@@ -1102,6 +1102,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       final maxDurationSec = settings.maxVideoDurationHours * 3600;
       int addedCount = 0;
       int skippedCount = 0;
+      int unavailableCount = 0;
 
       // fetchPlaylistEntries returns entries in YouTube's default (newest-first) order,
       // so reversing is only needed when the setting is OFF (oldest first).
@@ -1118,18 +1119,20 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         var thumbnail = (entry['thumbnail'] as String? ?? '').trim();
         var uploader = (entry['uploader'] as String? ?? '').trim();
 
-        if (videoUrl.isEmpty || videoUrl.toLowerCase() == 'null') continue;
+        if (videoUrl.isEmpty || videoUrl.toLowerCase() == 'null') {
+          unavailableCount++;
+          continue;
+        }
 
         final lowerTitle = title.toLowerCase();
         if (lowerTitle.contains('[deleted') ||
             lowerTitle.contains('[private') ||
-            lowerTitle.contains('[unavailable')) {
+            lowerTitle.contains('[unavailable') || 
+            title.isEmpty || 
+            lowerTitle == 'null' || 
+            lowerTitle == 'null null') {
+          unavailableCount++;
           continue;
-        }
-
-        if (title.isEmpty || lowerTitle == 'null' || lowerTitle == 'null null') {
-          final vid = VideoItem.extractVideoId(videoUrl);
-          title = vid != null ? 'Video ($vid)' : 'Video ${i + 1}';
         }
 
         if (thumbnail.isEmpty || thumbnail.toLowerCase() == 'null') {
@@ -1185,6 +1188,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       if (!_isQueuePaused) {
         await processNextQueue(settings: settings);
+      }
+
+      if (unavailableCount > 0) {
+        return addedCount > 0 
+            ? 'Gizli veya silinmiş $unavailableCount video atlandı, $addedCount video kuyruğa eklendi.'
+            : 'Gizli veya silinmiş $unavailableCount video atlandı. Eklenecek başka video bulunamadı.';
       }
 
       if (addedCount == 0 && skippedCount > 0) {

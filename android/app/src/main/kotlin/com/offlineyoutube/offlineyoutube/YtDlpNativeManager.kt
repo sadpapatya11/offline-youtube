@@ -342,7 +342,7 @@ object YtDlpNativeManager {
                 // 6. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
                 addOption("--limit-rate", dynamicRateLimit)
                 addOption("--sleep-interval", "2")
-                addOption("--max-sleep-interval", "4")
+                addOption("--max-sleep-interval", "60")
                 addOption("--retry-sleep", "5")
                 addOption("--retries", "10")
                 addOption("--fragment-retries", "10")
@@ -363,13 +363,23 @@ object YtDlpNativeManager {
                 var downloadedSize = ""
                 
                 if (line != null && line.contains("[download]")) {
-                    speed = parseSpeed(line)
-                    totalSize = parseTotalSize(line)
-                    downloadedSize = parseDownloadedSize(line, totalSize)
-                    val m = DOWNLOADED_PERCENT_PATTERN.matcher(line)
-                    if (m.find()) {
-                        m.group(1).toFloatOrNull()?.let {
-                            currentProgress = it
+                    if (line.contains("Sleeping")) {
+                        // Example: "[download] Sleeping 35.12 seconds..."
+                        val m = java.util.regex.Pattern.compile("Sleeping\\s+([\\d.]+)\\s+seconds").matcher(line)
+                        if (m.find()) {
+                            speed = "Bekliyor: ${m.group(1)}s"
+                        } else {
+                            speed = "Güvenlik Beklemesi..."
+                        }
+                    } else {
+                        speed = parseSpeed(line)
+                        totalSize = parseTotalSize(line)
+                        downloadedSize = parseDownloadedSize(line, totalSize)
+                        val m = DOWNLOADED_PERCENT_PATTERN.matcher(line)
+                        if (m.find()) {
+                            m.group(1).toFloatOrNull()?.let {
+                                currentProgress = it
+                            }
                         }
                     }
                 }

@@ -5,6 +5,7 @@ import 'package:offlineyoutube/ui/screens/youtube_login_screen.dart';
 import '../../models/app_settings.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/download_provider.dart';
 import '../../services/native_bridge.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
@@ -488,6 +489,70 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     value: settings.playlistReverseOrder,
                     onChanged: (bool value) {
                       settingsProvider.togglePlaylistReverse(value);
+                    },
+                  ),
+                  const Divider(color: AmoledTheme.borderDark),
+
+                  // Manuel Oynatma Listesi Eşitleme
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AmoledTheme.cardDark,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(Icons.sync_rounded,
+                          color: Colors.white, size: 22),
+                    ),
+                    title: const Text(
+                      'Oynatma Listelerini Şimdi Eşitle',
+                      style: TextStyle(
+                        color: AmoledTheme.pureWhite,
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Kayıtlı listelerinizdeki yeni videoları kuyruğa ekler.',
+                      style: TextStyle(
+                        color: AmoledTheme.subText,
+                        fontSize: 12,
+                      ),
+                    ),
+                    trailing: Consumer<DownloadProvider>(
+                      builder: (context, provider, child) {
+                        return provider.isSyncingPlaylists
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  color: AmoledTheme.brandRed,
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.chevron_right, color: AmoledTheme.subText);
+                      },
+                    ),
+                    onTap: () {
+                      final provider = context.read<DownloadProvider>();
+                      final settings = context.read<SettingsProvider>().settings;
+                      final libraryProvider = context.read<LibraryProvider>();
+                      if (!provider.isSyncingPlaylists) {
+                        provider.syncSavedPlaylists(
+                          settings: settings,
+                          libraryProvider: libraryProvider,
+                        ).then((result) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(result.message ?? 'Eşitleme tamamlandı.'),
+                                backgroundColor: AmoledTheme.cardDark,
+                              ),
+                            );
+                          }
+                        });
+                      }
                     },
                   ),
                   const Divider(color: AmoledTheme.borderDark),

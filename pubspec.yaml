@@ -44,6 +44,7 @@ dependencies:
   intl: ^0.20.2
   wakelock_plus: ^1.2.8
   webview_flutter: ^4.14.1
+  workmanager: ^0.10.7
 
 dev_dependencies:
   flutter_test:

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/download_task.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/settings_provider.dart';
+import '../../providers/library_provider.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_fast_scroller.dart';
 import '../widgets/download_tile.dart';
@@ -142,6 +143,22 @@ class QueueScreenState extends State<QueueScreen> with SingleTickerProviderState
       appBar: AppBar(
         title: const Text('İNDİRME KUYRUĞU'),
         actions: [
+          IconButton(
+            icon: downloadProvider.isSyncingPlaylists 
+                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                : const Icon(Icons.sync_rounded, color: Colors.white),
+            tooltip: 'Oynatma Listelerini Şimdi Eşitle',
+            onPressed: downloadProvider.isSyncingPlaylists 
+                ? null 
+                : () async {
+                    final settings = context.read<SettingsProvider>().settings;
+                    final libraryProvider = context.read<LibraryProvider>();
+                    await downloadProvider.syncSavedPlaylists(
+                      settings: settings,
+                      libraryProvider: libraryProvider,
+                    );
+                  },
+          ),
           if (hasErrors) ...[
             IconButton(
               icon: const Icon(Icons.replay_rounded, color: Color(0xFF00E676)),

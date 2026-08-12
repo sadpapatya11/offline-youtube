@@ -6,9 +6,11 @@ import 'providers/library_provider.dart';
 import 'providers/settings_provider.dart';
 import 'ui/screens/main_navigation_screen.dart';
 import 'ui/theme/amoled_theme.dart';
+import 'services/background_sync_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await BackgroundSyncManager.initialize();
 
   // Set system UI overlay style to pure black AMOLED
   SystemChrome.setSystemUIOverlayStyle(

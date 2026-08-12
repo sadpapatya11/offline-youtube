@@ -1349,8 +1349,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           0, (sum, v) => sum + (v.durationSeconds ?? 0));
 
       final effectiveNewEntries = settings.playlistReverseOrder
-          ? allNewEntries
-          : allNewEntries.reversed.toList();
+          ? allNewEntries.reversed.toList()
+          : allNewEntries;
 
       for (int i = effectiveNewEntries.length - 1; i >= 0; i--) {
         final entry = effectiveNewEntries[i];

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../providers/download_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/settings_manager.dart';
+import '../models/app_settings.dart';
 
 @pragma('vm:entry-point')
 void callbackDispatcher() {
@@ -42,10 +43,11 @@ class BackgroundSyncManager {
     try {
       Workmanager().initialize(
         callbackDispatcher,
-        isInDebugMode: kDebugMode, // Set to true for debugging in debug builds
+        isInDebugMode: kDebugMode,
       );
       
-      await _registerPeriodicTask();
+      final settings = await SettingsManager.instance.loadSettings();
+      await updateTaskConstraints(settings.networkMode == NetworkRestrictionMode.anyWifi);
     } catch (e) {
       if (kDebugMode) {
         print('BackgroundSyncManager: Initialization failed: $e');
@@ -53,17 +55,22 @@ class BackgroundSyncManager {
     }
   }
 
-  static Future<void> _registerPeriodicTask() async {
-    // 24 hours interval, any network type so it can fetch the API.
-    // The download queue will respect app settings (e.g. WiFi only).
-    await Workmanager().registerPeriodicTask(
-      _taskUniqueName,
-      _taskName,
-      frequency: const Duration(hours: 24),
-      constraints: Constraints(
-        networkType: NetworkType.connected, // Any network connection
-      ),
-      existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
-    );
+  static Future<void> updateTaskConstraints(bool isWifiOnly) async {
+    try {
+      await Workmanager().registerPeriodicTask(
+        _taskUniqueName,
+        _taskName,
+        frequency: const Duration(hours: 24),
+        constraints: Constraints(
+          networkType: isWifiOnly ? NetworkType.unmetered : NetworkType.connected,
+          requiresStorageNotLow: true,
+        ),
+        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+      );
+    } catch (e) {
+      if (kDebugMode) {
+        print('BackgroundSyncManager: register periodic task failed: $e');
+      }
+    }
   }
 }

@@ -202,6 +202,14 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                 title: const Text('İNDİRİLENLER'),
                 actions: [
                   IconButton(
+                    icon: Icon(
+                      library.sortNewestFirst ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                      color: AmoledTheme.pureWhite,
+                    ),
+                    tooltip: library.sortNewestFirst ? 'En Yeni (Değiştir)' : 'En Eski (Değiştir)',
+                    onPressed: () => library.toggleSortOrder(),
+                  ),
+                  IconButton(
                     icon: const Icon(Icons.checklist_rounded,
                         color: AmoledTheme.pureWhite),
                     tooltip: 'Çoklu Seç',

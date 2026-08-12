@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../models/video_item.dart';
 import '../theme/amoled_theme.dart';
 import 'amoled_card.dart';
@@ -261,6 +262,43 @@ class VideoTile extends StatelessWidget {
                     ),
                   ],
                 ),
+                
+                // YouTube Linki
+                if (video.sourceUrl != null && video.sourceUrl!.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  InkWell(
+                    onTap: () async {
+                      final url = Uri.parse(video.sourceUrl!);
+                      if (await canLaunchUrl(url)) {
+                        await launchUrl(url, mode: LaunchMode.externalNonBrowserApplication);
+                      }
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.link_rounded,
+                          size: 12,
+                          color: AmoledTheme.brandRed,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            video.sourceUrl!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AmoledTheme.brandRed,
+                              fontSize: 10.5,
+                              decoration: TextDecoration.underline,
+                              decorationColor: AmoledTheme.brandRed,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

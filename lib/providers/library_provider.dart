@@ -41,9 +41,32 @@ class LibraryProvider extends ChangeNotifier {
     // 24 saati geçmiş çöpleri otomatik temizle
     _trashedVideos = await StorageManager.instance.purgeExpiredTrash();
     _videos = await StorageManager.instance.scanDownloadedVideos();
+    
+    _applySort();
+
     _totalUsedBytes = await StorageManager.instance.getUsedStorageBytes();
     _isLoading = false;
     notifyListeners();
+  }
+
+  bool _sortNewestFirst = true; // En yeni (veya isme göre)
+  bool get sortNewestFirst => _sortNewestFirst;
+
+  void toggleSortOrder() {
+    _sortNewestFirst = !_sortNewestFirst;
+    _applySort();
+    notifyListeners();
+  }
+
+  void _applySort() {
+    if (_sortNewestFirst) {
+      // Varsayılan olarak list_dir / scanDownloadedVideos ters sırayla gelebiliyor.
+      // Basitçe adına veya modifiye zamanına göre sıralanabilir. 
+      // Burada filePath kullanarak basit string karşılaştırması yapıyoruz (timestamps içeren dosya adları için)
+      _videos.sort((a, b) => b.filePath.compareTo(a.filePath));
+    } else {
+      _videos.sort((a, b) => a.filePath.compareTo(b.filePath));
+    }
   }
 
   /// Videoyu Geri Dönüşüm Kutusuna taşır (24 saat sonra otomatik silinir)

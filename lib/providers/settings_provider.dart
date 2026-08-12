@@ -4,6 +4,7 @@ import '../models/app_settings.dart';
 import '../services/native_bridge.dart';
 import '../services/settings_manager.dart';
 import '../services/storage_manager.dart';
+import '../services/background_sync_manager.dart';
 
 class SettingsProvider extends ChangeNotifier {
   AppSettings _settings = const AppSettings();
@@ -85,6 +86,7 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> updateNetworkMode(NetworkRestrictionMode mode) async {
     _settings = _settings.copyWith(networkMode: mode);
     await SettingsManager.instance.saveSettings(_settings);
+    BackgroundSyncManager.updateTaskConstraints(mode == NetworkRestrictionMode.anyWifi);
     notifyListeners();
   }
 

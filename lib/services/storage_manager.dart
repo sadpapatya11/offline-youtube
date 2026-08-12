@@ -89,9 +89,61 @@ class StorageManager {
           await trashNoMedia.create();
         }
       } catch (_) {}
+      
+      // Eski klasörden göç et
+      await _migrateOldDownloads();
     } catch (e) {
       // Handled gracefully
     }
+  }
+
+  Future<void> _migrateOldDownloads() async {
+    try {
+      final oldDir = Directory(defaultHiddenPath);
+      if (!await oldDir.exists()) return;
+
+      final newDir = Directory(_currentDownloadPath);
+      if (!await newDir.exists()) {
+        await newDir.create(recursive: true);
+      }
+
+      // Tüm dosya ve klasörleri (recursive olarak) taşı
+      await for (final entity in oldDir.list(recursive: false)) {
+        final newPath = '${newDir.path}/${entity.path.split(Platform.pathSeparator).last}';
+        try {
+          if (entity is File) {
+            await entity.rename(newPath);
+          } else if (entity is Directory) {
+            // .trash gibi klasörler
+            final newSubDir = Directory(newPath);
+            if (!await newSubDir.exists()) {
+              await newSubDir.create(recursive: true);
+            }
+            await for (final subEntity in entity.list(recursive: false)) {
+              if (subEntity is File) {
+                final newSubPath = '${newSubDir.path}/${subEntity.path.split(Platform.pathSeparator).last}';
+                await subEntity.rename(newSubPath);
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      // trash_index.json içindeki eski mutlak yolları güncelle
+      try {
+        final trashIndex = File('${newDir.path}/.trash/trash_index.json');
+        if (await trashIndex.exists()) {
+          final content = await trashIndex.readAsString();
+          final updatedContent = content.replaceAll(defaultHiddenPath, _currentDownloadPath);
+          await trashIndex.writeAsString(updatedContent);
+        }
+      } catch (_) {}
+
+      // İşlem bitince eski boş klasörü silmeye çalış
+      try {
+        await oldDir.delete(recursive: true);
+      } catch (_) {}
+    } catch (_) {}
   }
 
   Future<int> getUsedStorageBytes() async {

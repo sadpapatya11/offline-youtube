@@ -369,6 +369,8 @@ class QueueScreenState extends State<QueueScreen> with SingleTickerProviderState
                                       downloadProvider.cancelTask(task.id),
                                   onDelete: () =>
                                       downloadProvider.removeTask(task.id),
+                                  onPrioritize: () =>
+                                      downloadProvider.prioritizeTask(task.id),
                                 ),
                               );
                             },

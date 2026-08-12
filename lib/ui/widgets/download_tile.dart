@@ -9,6 +9,7 @@ class DownloadTile extends StatelessWidget {
   final VoidCallback? onResume;
   final VoidCallback? onCancel;
   final VoidCallback? onDelete;
+  final VoidCallback? onPrioritize;
 
   const DownloadTile({
     super.key,
@@ -17,6 +18,7 @@ class DownloadTile extends StatelessWidget {
     this.onResume,
     this.onCancel,
     this.onDelete,
+    this.onPrioritize,
   });
 
   @override
@@ -352,11 +354,24 @@ class DownloadTile extends StatelessWidget {
         ],
       );
     } else {
-      return IconButton(
-        icon: const Icon(Icons.delete_outline,
-            color: Color(0xFF888888), size: 22),
-        onPressed: onDelete,
-        tooltip: 'Listeden Kaldır',
+      final isQueued = task.status == DownloadStatus.queued;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isQueued && onPrioritize != null)
+            IconButton(
+              icon: const Icon(Icons.vertical_align_top_rounded,
+                  color: Color(0xFF00E676), size: 24),
+              onPressed: onPrioritize,
+              tooltip: 'Önceliklendir (En Üste Taşı)',
+            ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline,
+                color: Color(0xFF888888), size: 22),
+            onPressed: onDelete,
+            tooltip: 'Listeden Kaldır',
+          ),
+        ],
       );
     }
   }

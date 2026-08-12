@@ -1495,6 +1495,30 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  void prioritizeTask(String taskId) {
+    final index = _tasks.indexWhere((t) => t.id == taskId);
+    if (index == -1) return;
+    final task = _tasks[index];
+    
+    // Don't reorder if it's already at index 0 or downloading
+    if (index == 0 || task.status == DownloadStatus.downloading || task.id == _activeTaskId) return;
+
+    _tasks.removeAt(index);
+    
+    int insertIndex = 0;
+    // Find index after active/downloading tasks
+    if (_activeTaskId != null) {
+      final activeIndex = _tasks.indexWhere((t) => t.id == _activeTaskId);
+      if (activeIndex != -1) {
+        insertIndex = activeIndex + 1;
+      }
+    }
+    
+    _tasks.insert(insertIndex, task);
+    _saveTasksToStorage();
+    notifyListeners();
+  }
+
   void clearErrors() {
     _tasks.removeWhere((t) => t.status == DownloadStatus.error);
     _saveTasksToStorage();

@@ -42,6 +42,7 @@ class BackgroundSyncManager {
     try {
       Workmanager().initialize(
         callbackDispatcher,
+        isInDebugMode: kDebugMode, // Set to true for debugging in debug builds
       );
       
       await _registerPeriodicTask();

@@ -59,13 +59,19 @@ object YtDlpNativeManager {
             isInitialized = true
             Log.i(TAG, "YtDlpNativeManager initialized successfully")
 
-            // Auto-update yt-dlp binary in background
-            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel._STABLE)
-                    Log.i(TAG, "yt-dlp auto-updated successfully")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Background yt-dlp update skipped: ${e.message}")
+            // Auto-update yt-dlp binary monthly in background
+            val prefs = context.getSharedPreferences("yt_dlp_prefs", Context.MODE_PRIVATE)
+            val lastUpdate = prefs.getLong("last_update", 0L)
+            val now = System.currentTimeMillis()
+            if (now - lastUpdate > 30L * 24 * 60 * 60 * 1000) { // 30 days
+                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel._STABLE)
+                        prefs.edit().putLong("last_update", now).apply()
+                        Log.i(TAG, "yt-dlp auto-updated successfully (monthly)")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Background yt-dlp update skipped: ${e.message}")
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -84,14 +90,31 @@ object YtDlpNativeManager {
         }
     }
 
+    private fun isUrlSafe(url: String): Boolean {
+        val lower = url.lowercase()
+        return lower.startsWith("https://www.youtube.com/") || 
+               lower.startsWith("https://youtu.be/") || 
+               lower.startsWith("https://m.youtube.com/") ||
+               lower.startsWith("https://youtube.com/")
+    }
+
     suspend fun fetchMetadata(url: String): Map<String, Any?> = withContext(Dispatchers.IO) {
+        var cookieFile: File? = null
         try {
+            if (!isUrlSafe(url)) throw IllegalArgumentException("Unauthorized URL scheme/domain")
             val isPlaylist = isPlaylistUrl(url)
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
                 addOption("--no-cache-dir")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
+                
+                appContext?.let { ctx ->
+                    cookieFile = CookieHelper.saveCookies(ctx)
+                    if (cookieFile != null && cookieFile!!.exists()) {
+                        addOption("--cookies", cookieFile!!.absolutePath)
+                    }
+                }
                 // FIX(tab): iPhone UA + player_client/player_skip ayarları TEK
                 // VİDEO için bot-korumasını aşar ama oynatma listesi (tab)
                 // sayfasını KIRAR ("Unable to recognize tab page" — Windows'ta
@@ -133,10 +156,13 @@ object YtDlpNativeManager {
         } catch (e: Exception) {
             Log.e(TAG, "Fetch metadata failed for $url: ${e.message}", e)
             throw e
+        } finally {
+            cookieFile?.delete()
         }
     }
 
     suspend fun fetchPlaylistEntries(url: String): List<Map<String, Any?>> = withContext(Dispatchers.IO) {
+        var cookieFile: File? = null
         try {
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
@@ -152,9 +178,9 @@ object YtDlpNativeManager {
                 addOption("--flat-playlist")
                 addOption("-J")
                 appContext?.let { ctx ->
-                    val cookieFile = CookieHelper.saveCookies(ctx)
-                    if (cookieFile != null && cookieFile.exists()) {
-                        addOption("--cookies", cookieFile.absolutePath)
+                    cookieFile = CookieHelper.saveCookies(ctx)
+                    if (cookieFile != null && cookieFile!!.exists()) {
+                        addOption("--cookies", cookieFile!!.absolutePath)
                     }
                 }
             }
@@ -250,6 +276,8 @@ object YtDlpNativeManager {
         } catch (e: Exception) {
             Log.e(TAG, "Fetch playlist entries failed for $url: ${e.message}", e)
             throw e
+        } finally {
+            cookieFile?.delete()
         }
     }
 
@@ -266,10 +294,23 @@ object YtDlpNativeManager {
         onComplete: (String) -> Unit,
         onError: (Exception) -> Unit
     ) {
+        if (!isUrlSafe(url)) {
+            onError(IllegalArgumentException("Unauthorized URL scheme/domain"))
+            return
+        }
+        
+        val safeBaseDir = appContext?.getExternalFilesDir(null)?.absolutePath ?: ""
+        if (outputDir.absolutePath.isEmpty() || (!outputDir.absolutePath.startsWith(safeBaseDir) && !outputDir.absolutePath.contains(appContext?.packageName ?: ""))) {
+            Log.w(TAG, "Blocked unauthorized path: ${outputDir.absolutePath}")
+            onError(IllegalArgumentException("Unauthorized output path"))
+            return
+        }
+
         // FIX(race): Bu yürütmenin neslini try bloğu DIŞINDA yakala — catch
         // bloğunda da erişilmesi gerekiyor (Kotlin try değişkenlerini catch'e
         // taşımaz).
         val executionGeneration = stopGeneration[taskId] ?: 0
+        var cookieFile: File? = null
         try {
             if (!outputDir.exists()) {
                 outputDir.mkdirs()
@@ -324,9 +365,9 @@ object YtDlpNativeManager {
                 addOption("--ignore-errors")
                 addOption("--no-playlist")
                 appContext?.let { ctx ->
-                    val cookieFile = CookieHelper.saveCookies(ctx)
-                    if (cookieFile != null && cookieFile.exists()) {
-                        addOption("--cookies", cookieFile.absolutePath)
+                    cookieFile = CookieHelper.saveCookies(ctx)
+                    if (cookieFile != null && cookieFile!!.exists()) {
+                        addOption("--cookies", cookieFile!!.absolutePath)
                     }
                 }
                 
@@ -404,6 +445,8 @@ object YtDlpNativeManager {
             }
             Log.e(TAG, "Download error for task $taskId: ${e.message}", e)
             onError(e)
+        } finally {
+            cookieFile?.delete()
         }
     }
 

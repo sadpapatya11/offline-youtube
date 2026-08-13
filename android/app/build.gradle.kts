@@ -81,8 +81,8 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             // FIX(proguard): youtubedl-android keep kuralları hazır — minify
             // açılırsa indirmelerin bozulmaması için bkz. proguard-rules.pro
             proguardFiles(

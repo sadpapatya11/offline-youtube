@@ -21,6 +21,14 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
       ..setBackgroundColor(AmoledTheme.pureBlack)
       ..setNavigationDelegate(
         NavigationDelegate(
+          onNavigationRequest: (NavigationRequest request) {
+            final host = Uri.parse(request.url).host.toLowerCase();
+            if (host.contains('youtube.com') || host.contains('accounts.google.com') || host.contains('myaccount.google.com')) {
+              return NavigationDecision.navigate;
+            }
+            debugPrint('Blocked navigation to unauthorized domain: $host');
+            return NavigationDecision.prevent;
+          },
           onPageFinished: (String url) {
             if (mounted) {
               setState(() {

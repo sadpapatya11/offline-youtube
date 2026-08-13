@@ -32,7 +32,7 @@ class StorageManager {
       try {
         final extDir = await getExternalStorageDirectory();
         if (extDir != null) {
-          _currentDownloadPath = '${extDir.path}/offlineyoutube';
+          _currentDownloadPath = '${extDir.path}/.movies';
         }
       } catch (_) {
         // Fallback: defaultHiddenPath kullanılmaya devam edilir
@@ -55,14 +55,14 @@ class StorageManager {
         // Fallback to app external storage directory
         final extDir = await getExternalStorageDirectory();
         if (extDir != null) {
-          _currentDownloadPath = '${extDir.path}/.offlineyoutube';
+          _currentDownloadPath = '${extDir.path}/.movies';
           dir = Directory(_currentDownloadPath);
           if (!await dir.exists()) {
             await dir.create(recursive: true);
           }
         } else {
           final appDocDir = await getApplicationDocumentsDirectory();
-          _currentDownloadPath = '${appDocDir.path}/.offlineyoutube';
+          _currentDownloadPath = '${appDocDir.path}/.movies';
           dir = Directory(_currentDownloadPath);
           if (!await dir.exists()) {
             await dir.create(recursive: true);

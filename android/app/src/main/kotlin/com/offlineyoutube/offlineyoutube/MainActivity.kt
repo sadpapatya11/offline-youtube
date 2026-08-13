@@ -221,6 +221,12 @@ class MainActivity : FlutterActivity() {
 
                 "getFolderSize" -> {
                     val path = call.argument<String>("path") ?: ""
+                    val safeBaseDir = context.getExternalFilesDir(null)?.absolutePath ?: ""
+                    if (path.isEmpty() || (!path.startsWith(safeBaseDir) && !path.contains(context.packageName))) {
+                        Log.w("MainActivity", "Blocked unauthorized path size request: $path")
+                        result.success(0L)
+                        return@setMethodCallHandler
+                    }
                     activityScope.launch {
                         val size = withContext(Dispatchers.IO) {
                             calculateFolderSize(File(path))

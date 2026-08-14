@@ -269,8 +269,25 @@ class VideoTile extends StatelessWidget {
                   InkWell(
                     onTap: () async {
                       final url = Uri.parse(video.sourceUrl!);
-                      if (await canLaunchUrl(url)) {
-                        await launchUrl(url, mode: LaunchMode.externalNonBrowserApplication);
+                      try {
+                        // Önce YouTube uygulamasında açmayı dene
+                        final launched = await launchUrl(
+                          url,
+                          mode: LaunchMode.externalNonBrowserApplication,
+                        );
+                        if (!launched) {
+                          // YouTube uygulaması yoksa sistem varsayılanıyla aç
+                          await launchUrl(
+                            url,
+                            mode: LaunchMode.externalApplication,
+                          );
+                        }
+                      } catch (_) {
+                        // Son çare: platformun varsayılan davranışı
+                        await launchUrl(
+                          url,
+                          mode: LaunchMode.externalApplication,
+                        );
                       }
                     },
                     child: Row(

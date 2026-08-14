@@ -270,13 +270,23 @@ class VideoTile extends StatelessWidget {
                     onTap: () async {
                       final url = Uri.parse(video.sourceUrl!);
                       try {
-                        // Önce YouTube uygulamasında açmayı dene
-                        final launched = await launchUrl(
-                          url,
-                          mode: LaunchMode.externalNonBrowserApplication,
-                        );
+                        bool launched = false;
+                        // YouTube uygulamasına doğrudan açmayı dene
+                        if (video.youtubeId != null && video.youtubeId!.isNotEmpty) {
+                          final ytAppUri = Uri.parse('vnd.youtube:${video.youtubeId}');
+                          launched = await launchUrl(ytAppUri, mode: LaunchMode.externalApplication);
+                        }
+
                         if (!launched) {
-                          // YouTube uygulaması yoksa sistem varsayılanıyla aç
+                          // Önce YouTube uygulamasında açmayı dene (Android 11+ queries ile)
+                          launched = await launchUrl(
+                            url,
+                            mode: LaunchMode.externalNonBrowserApplication,
+                          );
+                        }
+                        
+                        if (!launched) {
+                          // YouTube uygulaması yoksa sistem varsayılanıyla (tarayıcı vs) aç
                           await launchUrl(
                             url,
                             mode: LaunchMode.externalApplication,

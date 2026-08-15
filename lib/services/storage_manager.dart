@@ -183,6 +183,7 @@ class StorageManager {
     String? uploader,
     String? title,
     String? url,
+    String? playlistUrl,
   }) async {
     try {
       final dotIndex = videoFilePath.lastIndexOf('.');
@@ -194,6 +195,7 @@ class StorageManager {
         'uploader': uploader,
         'title': title,
         'url': url,
+        'playlistUrl': playlistUrl,
       };
       await metaFile.writeAsString(jsonEncode(data));
     } catch (_) {}
@@ -256,6 +258,7 @@ class StorageManager {
             int? durationSeconds;
             String? uploader;
             String? sourceUrl;
+            String? playlistUrl;
             String displayTitle = title;
             final metaFile = File('$baseWithoutExt.meta.json');
             if (await metaFile.exists()) {
@@ -265,6 +268,7 @@ class StorageManager {
                 durationSeconds = metaJson['durationSeconds'] as int?;
                 uploader = metaJson['uploader'] as String?;
                 sourceUrl = metaJson['url'] as String?;
+                playlistUrl = metaJson['playlistUrl'] as String?;
                 if (metaJson['title'] != null &&
                     (metaJson['title'] as String).trim().isNotEmpty) {
                   displayTitle = (metaJson['title'] as String).trim();
@@ -286,6 +290,7 @@ class StorageManager {
               thumbnailPath: thumbPath,
               subtitlePath: subtitlePath,
               sourceUrl: sourceUrl,
+              playlistUrl: playlistUrl,
             ));
           }
         }

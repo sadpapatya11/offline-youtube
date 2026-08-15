@@ -12,14 +12,24 @@ import java.util.Properties
 // böylece keystore'suz ortamlarda build bozulmaz.
 fun loadKeystoreProps(project: org.gradle.api.Project): Properties? {
     val propsFile = project.file("keystore.properties")
+    val isReleaseBuild = project.gradle.startParameter.taskNames.any { it.contains("Release") }
+    
     if (!propsFile.exists()) {
-        project.logger.warn("keystore.properties bulunamadı — release imzası devre dışı, debug anahtarı kullanılacak.")
+        if (isReleaseBuild) {
+            throw GradleException("GÜVENLİK HATASI: keystore.properties bulunamadı! Release derlemesi iptal edildi.")
+        }
+        project.logger.warn("keystore.properties bulunamadı — release imzası devre dışı.")
         return null
     }
+    
     val props = Properties()
     propsFile.inputStream().use { props.load(it) }
     val storeFile = project.file(props.getProperty("storeFile"))
+    
     if (!storeFile.exists()) {
+        if (isReleaseBuild) {
+            throw GradleException("GÜVENLİK HATASI: Keystore dosyası yok (${storeFile.absolutePath})! Release derlemesi iptal edildi.")
+        }
         project.logger.warn("Keystore dosyası yok (${storeFile.absolutePath}) — release imzası devre dışı.")
         return null
     }
@@ -71,15 +81,13 @@ android {
             // dosyasında tutulur (gitignore'da) ve üretim dışındaki ortamlarda
             // imzalama devre dışı kalır (geliştirici imzası kullanılır).
             val releaseProps = loadKeystoreProps(project)
-            signingConfig = if (releaseProps != null) {
-                signingConfigs.create("release") {
+            if (releaseProps != null) {
+                signingConfig = signingConfigs.create("release") {
                     storeFile = project.file(releaseProps.getProperty("storeFile"))
                     storePassword = releaseProps.getProperty("storePassword")
                     keyAlias = releaseProps.getProperty("keyAlias")
                     keyPassword = releaseProps.getProperty("keyPassword")
                 }
-            } else {
-                signingConfigs.getByName("debug")
             }
             isMinifyEnabled = true
             isShrinkResources = true
@@ -97,6 +105,7 @@ dependencies {
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:aria2c:0.18.1")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

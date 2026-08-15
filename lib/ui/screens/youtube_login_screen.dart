@@ -22,8 +22,15 @@ class _YoutubeLoginScreenState extends State<YoutubeLoginScreen> {
       ..setNavigationDelegate(
         NavigationDelegate(
           onNavigationRequest: (NavigationRequest request) {
-            final host = Uri.parse(request.url).host.toLowerCase();
-            if (host.contains('youtube.com') || host.contains('accounts.google.com') || host.contains('myaccount.google.com')) {
+            final uri = Uri.parse(request.url);
+            final host = uri.host.toLowerCase();
+            if (uri.scheme != 'https') {
+              debugPrint('Blocked non-HTTPS navigation: ${request.url}');
+              return NavigationDecision.prevent;
+            }
+            if (host == 'youtube.com' || host.endsWith('.youtube.com') || 
+                host == 'accounts.google.com' || host.endsWith('.accounts.google.com') || 
+                host == 'myaccount.google.com' || host.endsWith('.myaccount.google.com')) {
               return NavigationDecision.navigate;
             }
             debugPrint('Blocked navigation to unauthorized domain: $host');

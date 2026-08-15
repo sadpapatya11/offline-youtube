@@ -11,6 +11,7 @@ class VideoItem {
   final String? thumbnailPath;
   final String? subtitlePath;
   final String? sourceUrl;
+  final String? playlistUrl;
 
   VideoItem({
     required this.id,
@@ -23,6 +24,7 @@ class VideoItem {
     this.thumbnailPath,
     this.subtitlePath,
     this.sourceUrl,
+    this.playlistUrl,
   });
 
   bool get exists => File(filePath).existsSync();
@@ -71,6 +73,7 @@ class VideoItem {
         'thumbnailPath': thumbnailPath,
         'subtitlePath': subtitlePath,
         'sourceUrl': sourceUrl,
+        'playlistUrl': playlistUrl,
       };
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
@@ -84,5 +87,6 @@ class VideoItem {
         thumbnailPath: json['thumbnailPath'] as String?,
         subtitlePath: json['subtitlePath'] as String?,
         sourceUrl: json['sourceUrl'] as String?,
+        playlistUrl: json['playlistUrl'] as String?,
       );
 }

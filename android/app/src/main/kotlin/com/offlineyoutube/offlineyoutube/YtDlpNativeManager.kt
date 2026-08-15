@@ -58,22 +58,6 @@ object YtDlpNativeManager {
             }
             isInitialized = true
             Log.i(TAG, "YtDlpNativeManager initialized successfully")
-
-            // Auto-update yt-dlp binary monthly in background
-            val prefs = context.getSharedPreferences("yt_dlp_prefs", Context.MODE_PRIVATE)
-            val lastUpdate = prefs.getLong("last_update", 0L)
-            val now = System.currentTimeMillis()
-            if (now - lastUpdate > 30L * 24 * 60 * 60 * 1000) { // 30 days
-                kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext, YoutubeDL.UpdateChannel._STABLE)
-                        prefs.edit().putLong("last_update", now).apply()
-                        Log.i(TAG, "yt-dlp auto-updated successfully (monthly)")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Background yt-dlp update skipped: ${e.message}")
-                    }
-                }
-            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize YoutubeDL: ${e.message}", e)
         }

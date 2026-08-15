@@ -42,6 +42,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool _isLoaded = false;
   bool _isAutoUpdatingEngine = false;
   bool _isSyncingPlaylists = false;
+  bool _disposed = false;
   AppSettings? _lastSettings;
   VoidCallback? onLibraryNeedsRefresh;
 
@@ -107,6 +108,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> _runWatchdogCheck() async {
+    if (_disposed) return;
     if (!_isLoaded || _isQueuePaused) return;
 
     final hasPendingTasks = _tasks.any(
@@ -389,6 +391,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       // FIX(async): callback async — completed dalında disk taraması await ile
       // yapılır (UI thread'i bloklamaz).
       (data) async {
+        if (_disposed) return;
         final taskId = data['taskId']?.toString();
         if (taskId == null) return;
 
@@ -417,6 +420,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             break;
 
           case 'completed':
+            if (task.status == DownloadStatus.cancelled) return;
             task.status = DownloadStatus.completed;
             task.progress = 100.0;
             task.speed = '';
@@ -457,6 +461,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
                           uploader: task.uploader,
                           title: task.title,
                           url: task.url,
+                          playlistUrl: task.sourcePlaylistUrl,
                         );
                       }
                     }
@@ -1348,8 +1353,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       if (anyPlaylistSucceeded) {
         for (final video in downloadedVideos) {
           // Sadece kayıtlı oynatma listelerinden gelen videoları kontrol et
-          // (sourceUrl'si olmayan veya elle eklenen videoları ASLA silme)
-          if (video.sourceUrl == null || video.sourceUrl!.isEmpty) continue;
+          // (playlistUrl'si olmayan veya elle eklenen videoları ASLA silme)
+          if (video.playlistUrl == null || video.playlistUrl!.isEmpty || !settings.savedPlaylists.contains(video.playlistUrl)) continue;
 
           final vid = video.youtubeId;
           final stillInPlaylist =
@@ -1583,6 +1588,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _watchdogTimer?.cancel();
     _eventSubscription?.cancel();

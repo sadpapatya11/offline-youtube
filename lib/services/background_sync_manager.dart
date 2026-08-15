@@ -43,7 +43,6 @@ class BackgroundSyncManager {
     try {
       Workmanager().initialize(
         callbackDispatcher,
-        isInDebugMode: kDebugMode,
       );
       
       final settings = await SettingsManager.instance.loadSettings();

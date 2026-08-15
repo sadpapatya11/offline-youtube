@@ -620,9 +620,26 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   void _triggerNextQueue({int delayMs = 1200}) {
     if (_isQueuePaused) return;
 
-    Future.delayed(Duration(milliseconds: delayMs), () {
-      if (!_isQueuePaused) {
+    Future.delayed(Duration(milliseconds: delayMs), () async {
+      if (_isQueuePaused) return;
+
+      // Önce normal kuyruktaki işleri dene
+      final hasQueuedTasks = _tasks.any(
+        (t) => t.status == DownloadStatus.queued,
+      );
+
+      if (hasQueuedTasks) {
         processNextQueue();
+      } else if (_lastSettings != null &&
+          _lastSettings!.savedPlaylists.isNotEmpty &&
+          !_isSyncingPlaylists) {
+        // Kuyruk boş ama kayıtlı oynatma listeleri var →
+        // JIT senkronizasyonu tetikle (bir sonraki videoyu çek)
+        final libraryProvider = LibraryProvider();
+        await syncSavedPlaylists(
+          settings: _lastSettings!,
+          libraryProvider: libraryProvider,
+        );
       }
     });
   }
@@ -1231,11 +1248,11 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     return null;
   }
 
-  /// Kayıtlı oynatma listelerini YouTube ile senkronize eder:
-  /// - YouTube'dan silinmiş videoları kuyruktan (bekleyen/duraklı görevler) temizler.
-  /// - Yeni eklenen videoları kuyruğun en tepesine ekler.
-  /// - İndirme kurallarını (Wi-Fi, kota, saat) harfiyen uygular.
-  /// Not: İndirilmiş dosyalar asla otomatik silinmez (kullanıcı güvenliği).
+  /// Just-in-Time oynatma listesi senkronizasyonu:
+  /// 1. YouTube listesinde artık OLMAYAN indirilmiş videoları çöp kutusuna taşır.
+  /// 2. Kuyruktan (queued/paused) listede olmayanları temizler.
+  /// 3. Listede en tepedeki henüz indirilmemiş TEK videoyu kuyruğa ekler.
+  /// 4. İndirme bittiğinde tekrar çağrılarak dinamik döngü sağlar.
   Future<PlaylistSyncResult> syncSavedPlaylists({
     required AppSettings settings,
     required LibraryProvider libraryProvider,
@@ -1256,7 +1273,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     _isSyncingPlaylists = true;
     notifyListeners();
 
-    int deletedCount = 0;
+    int trashedCount = 0;
+    int queueDeletedCount = 0;
     int addedCount = 0;
     bool anyPlaylistSucceeded = false;
 
@@ -1265,10 +1283,11 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           await StorageManager.instance.scanDownloadedVideos();
       final currentQueueTasks = List<DownloadTask>.from(_tasks);
 
-      final Set<String> currentOnlineVideoIds = {};
-      final Set<String> currentOnlineUrls = {};
-      final Set<String> currentOnlineTitles = {};
-      final List<Map<String, dynamic>> allNewEntries = [];
+      // Tüm oynatma listelerindeki mevcut video ID'leri ve URL'leri topla
+      final Set<String> allOnlineVideoIds = {};
+      final Set<String> allOnlineUrls = {};
+      // Listede sıraya göre yeni videoları topla (en tepedeki önce)
+      final List<Map<String, dynamic>> orderedNewEntries = [];
 
       for (final playlistUrl in settings.savedPlaylists) {
         if (playlistUrl.trim().isEmpty) continue;
@@ -1282,36 +1301,39 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             final u = (entry['url'] as String? ?? '').trim();
             final vid = VideoItem.extractVideoId(u) ??
                 (entry['id'] as String? ?? '').trim();
-            if (vid.isNotEmpty) currentOnlineVideoIds.add(vid);
-            if (u.isNotEmpty) currentOnlineUrls.add(u);
+            if (vid.isNotEmpty) allOnlineVideoIds.add(vid);
+            if (u.isNotEmpty) allOnlineUrls.add(u);
+
+            // Silinen/özel videoları atla
             final t = (entry['title'] as String? ?? '').trim();
-            if (t.isNotEmpty &&
-                !t.toLowerCase().contains('[deleted') &&
-                !t.toLowerCase().contains('[private')) {
-              currentOnlineTitles.add(t.toLowerCase());
+            if (t.toLowerCase().contains('[deleted') ||
+                t.toLowerCase().contains('[private') ||
+                t.toLowerCase().contains('[unavailable')) {
+              continue;
             }
 
+            // Zaten indirilmiş mi kontrol et
             final isAlreadyDownloaded = downloadedVideos.any((v) =>
                 (v.youtubeId != null && v.youtubeId == vid) ||
-                (v.sourceUrl != null && v.sourceUrl == u) ||
-                v.title.trim().toLowerCase() == t.toLowerCase());
+                (v.sourceUrl != null && v.sourceUrl == u));
 
+            // Zaten kuyrukta mı kontrol et
             final isAlreadyInQueue = currentQueueTasks.any((t) =>
                 (VideoItem.extractVideoId(t.url) != null &&
                     VideoItem.extractVideoId(t.url) == vid) ||
                 t.url == u);
 
-            final isAlreadyInBatch = allNewEntries.any((e) {
+            // Zaten bu batch'e eklenmiş mi kontrol et
+            final isAlreadyInBatch = orderedNewEntries.any((e) {
               final eUrl = (e['url'] as String? ?? '').trim();
               final eVid = VideoItem.extractVideoId(eUrl) ??
                   (e['id'] as String? ?? '').trim();
-              return (vid.isNotEmpty && eVid == vid) || (u.isNotEmpty && eUrl == u);
+              return (vid.isNotEmpty && eVid == vid) ||
+                  (u.isNotEmpty && eUrl == u);
             });
 
             if (!isAlreadyDownloaded && !isAlreadyInQueue && !isAlreadyInBatch) {
-              // FIX(sync): Kaynak playlist URL'sini entry ile birlikte sakla ki
-              // oluşturulan görev doğru listeye bağlanabilsin.
-              allNewEntries.add({
+              orderedNewEntries.add({
                 ...entry,
                 '_sourcePlaylistUrl': playlistUrl,
               });
@@ -1322,11 +1344,33 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
-      // FIX(sync-cleanup): YouTube'dan artık çevrimiçi olmayan videoları
-      // kuyruktan (queued/paused görevler) temizle. Önceden deletedCount hep 0
-      // kalıyor ve docstring'in vaat ettiği temizlik hiç gerçekleşmiyordu.
-      // Yalnızca kayıtlı listelerden gelen görevler silinir — elle eklenen
-      // tek videolar ve indirilen dosyalar asla dokunulmaz (kullanıcı güvenliği).
+      // --- ADIM 1: İndirilmiş ama artık listede OLMAYAN videoları çöp kutusuna taşı ---
+      if (anyPlaylistSucceeded) {
+        for (final video in downloadedVideos) {
+          // Sadece kayıtlı oynatma listelerinden gelen videoları kontrol et
+          // (sourceUrl'si olmayan veya elle eklenen videoları ASLA silme)
+          if (video.sourceUrl == null || video.sourceUrl!.isEmpty) continue;
+
+          final vid = video.youtubeId;
+          final stillInPlaylist =
+              (vid != null && allOnlineVideoIds.contains(vid)) ||
+                  allOnlineUrls.contains(video.sourceUrl);
+
+          if (!stillInPlaylist) {
+            final moved = await StorageManager.instance.moveToTrash(video);
+            if (moved) {
+              trashedCount++;
+            }
+          }
+        }
+
+        // Kütüphaneyi yenile (çöpe taşınan videoları UI'dan kaldır)
+        if (trashedCount > 0) {
+          onLibraryNeedsRefresh?.call();
+        }
+      }
+
+      // --- ADIM 2: Kuyruktan listede artık olmayan görevleri temizle ---
       for (final t in List.of(_tasks)) {
         final belongsToSavedPlaylist = t.sourcePlaylistUrl != null &&
             settings.savedPlaylists.contains(t.sourcePlaylistUrl);
@@ -1335,30 +1379,29 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             t.status == DownloadStatus.paused) {
           final tVid = VideoItem.extractVideoId(t.url);
           final stillOnline =
-              (tVid != null && currentOnlineVideoIds.contains(tVid)) ||
-                  currentOnlineUrls.contains(t.url);
+              (tVid != null && allOnlineVideoIds.contains(tVid)) ||
+                  allOnlineUrls.contains(t.url);
           if (!stillOnline) {
             _tasks.remove(t);
-            deletedCount++;
+            queueDeletedCount++;
           }
         }
       }
 
-      // Not: İndirilen videolar asla otomatik silinmez (kullanıcı güvenliği)
-
-      // 2. YENİ EKLENEN videoları kuyruğun EN BAŞINA (Öncelikli) ekle
+      // --- ADIM 3: Just-in-Time — sadece en tepedeki 1 yeni videoyu kuyruğa ekle ---
       final maxDurationSec = settings.maxVideoDurationHours * 3600;
       final refreshedDownloads =
           await StorageManager.instance.scanDownloadedVideos();
       int runningTotalSec = refreshedDownloads.fold<int>(
           0, (sum, v) => sum + (v.durationSeconds ?? 0));
 
+      // Listeyi kullanıcı ayarına göre sırala
       final effectiveNewEntries = settings.playlistReverseOrder
-          ? allNewEntries.reversed.toList()
-          : allNewEntries;
+          ? orderedNewEntries.reversed.toList()
+          : orderedNewEntries;
 
-      for (int i = effectiveNewEntries.length - 1; i >= 0; i--) {
-        final entry = effectiveNewEntries[i];
+      // Sadece İLK uygun videoyu ekle (Just-in-Time)
+      for (final entry in effectiveNewEntries) {
         final videoUrl = (entry['url'] as String? ?? '').trim();
         var title = (entry['title'] as String? ?? '').trim();
         final duration = (entry['duration'] as num?)?.toInt() ?? 0;
@@ -1389,12 +1432,13 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           uploader = '';
         }
 
+        // Süre kotası kontrolü
         if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) {
           continue;
         }
 
         runningTotalSec += duration;
-        final taskId = '${DateTime.now().millisecondsSinceEpoch}_sync_$i';
+        final taskId = '${DateTime.now().millisecondsSinceEpoch}_jit_0';
         final entrySourcePlaylist =
             (entry['_sourcePlaylistUrl'] as String? ?? '').trim();
         final newTask = DownloadTask(
@@ -1405,27 +1449,26 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           durationSeconds: duration,
           uploader: uploader.isNotEmpty ? uploader : null,
           status: DownloadStatus.queued,
-          // FIX(sync): Görevin kaynak listesini işaretle — senkron temizliği
-          // yalnızca bu listeye ait görevleri kaldırabilir.
           sourcePlaylistUrl:
               entrySourcePlaylist.isNotEmpty ? entrySourcePlaylist : null,
         );
 
         _tasks.insert(0, newTask);
         addedCount++;
+        break; // JIT: sadece 1 video ekle, indirme bitince tekrar çağrılacak
       }
 
       await _saveTasksToStorage();
       notifyListeners();
 
-      if (!_isQueuePaused) {
+      if (!_isQueuePaused && addedCount > 0) {
         await processNextQueue(settings: settings);
       }
 
       return PlaylistSyncResult(
         success: anyPlaylistSucceeded,
         newVideosAdded: addedCount,
-        deletedVideosRemoved: deletedCount,
+        deletedVideosRemoved: trashedCount + queueDeletedCount,
       );
     } catch (e) {
       return PlaylistSyncResult(

@@ -340,13 +340,19 @@ object YtDlpNativeManager {
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
                 // Safe formatting: 50-char max title (50 chars * up to 4 bytes/char = 200 bytes) + unique video id keeps the full filename, incl. sidecar suffixes like [id].f137.mp4.part, under Android's 255-byte filename limit without slicing multi-byte UTF-8 chars
                 addOption("-o", "${outputDir.absolutePath}/%(title).50s [%(id)s].%(ext)s")
-                // Automatically pick the highest resolution video (including 4K/8K VP9/AV1)
-                // and the best audio, and merge them into an MKV container for maximum compatibility.
-                addOption("-f", "bestvideo+bestaudio/best")
+                // FIX(quality): YTDLnis-inspired format selection chain for maximum resolution:
+                // 1. bestvideo[ext=mp4]+bestaudio[ext=m4a] → HW-decode-friendly, birleştirmesi sorunsuz
+                // 2. bestvideo+bestaudio → VP9/AV1 4K/8K dahil herhangi codec (FFmpeg remux gerekebilir)
+                // 3. best → Önceden birleştirilmiş en iyi kalite (fallback)
+                addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best")
+                // Çözünürlüğü ve codec kalitesini en yükseğe zorla (8K > 4K > 1080p sıralaması)
+                addOption("-S", "res,vcodec:h265,vcodec:h264,acodec:aac")
                 
-                // 1. Zero-Reencode FFmpeg Remuxing (Direct container stream copy with thread cap)
-                addOption("--merge-output-format", "mkv")
-                addOption("--postprocessor-args", "ffmpeg:-threads $ffmpegThreads -c copy")
+                // 1. FFmpeg Remuxing — container birleştirme (re-encode YOK, sadece kapsayıcı değiştirir)
+                addOption("--merge-output-format", "mp4")
+                addOption("--postprocessor-args", "ffmpeg:-threads $ffmpegThreads")
+                // MP4'e sığmayan codec'lerde (VP9/AV1) otomatik remux yap
+                addOption("--remux-video", "mp4")
                 
                 // 2. Single fragment stream to eliminate Wi-Fi modem saturation & multi-thread CPU bursts
                 addOption("--concurrent-fragments", "1")

@@ -123,6 +123,8 @@ class _HomeScreenState extends State<HomeScreen> {
               totalCount: result.totalCount,
             );
 
+            if (!mounted) return;
+
             if (addError != null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(

@@ -92,8 +92,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final isOnlyWifi =
         settings.networkMode == NetworkRestrictionMode.anyWifi;
-    final usedGB =
-        (libraryProvider.totalUsedBytes / (1024 * 1024 * 1024)).toStringAsFixed(2);
 
     return Scaffold(
       appBar: AppBar(
@@ -242,7 +240,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Mevcut Kullanım: $usedGB GB / ${settings.maxStorageLimitGB} GB',
+                    'Mevcut Kullanım: ${libraryProvider.formattedTotalUsed} / ${settings.maxStorageLimitGB} GB',
                     style: const TextStyle(color: AmoledTheme.subText, fontSize: 13),
                   ),
                   const SizedBox(height: 12),

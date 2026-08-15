@@ -8,6 +8,10 @@
 
 **Offline YouTube**, YouTube videolarını ve oynatma listelerini en yüksek kalitede, arka planda güvenle indirip internet bağlantısına ihtiyaç duymadan AMOLED siyah temalı yerleşik video oynatıcı ile izlemenizi sağlayan gelişmiş bir mobil uygulamadır.
 
+### 📥 Kurulum / İndir (Download)
+
+En güncel Android (APK) sürümünü indirmek için cihazınız üzerinden **[Releases (Sürümler)](https://github.com/sadpapatya11/offline-youtube/releases/latest)** sayfasına gidebilir, oradaki `.apk` dosyasını indirerek doğrudan kurabilirsiniz.
+
 ### ✨ Öne Çıkan Özellikler
 
 - 🖤 **Saf AMOLED Siyah UI:** Pil tasarrufu sağlayan, göz yormayan modern neon ve siyah tasarım.
@@ -30,6 +34,10 @@
 ## English
 
 **Offline YouTube** is a high-performance Android application built with Flutter that allows downloading and watching YouTube videos and playlists completely offline with a premium AMOLED dark video player.
+
+### 📥 Download / Installation (APK)
+
+To download the latest Android (APK) version, visit the **[Releases](https://github.com/sadpapatya11/offline-youtube/releases/latest)** page directly from your device and download the `.apk` file to install it.
 
 ### ✨ Key Features
 

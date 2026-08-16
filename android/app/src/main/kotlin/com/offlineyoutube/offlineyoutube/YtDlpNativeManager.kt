@@ -75,11 +75,17 @@ object YtDlpNativeManager {
     }
 
     private fun isUrlSafe(url: String): Boolean {
-        val lower = url.lowercase()
-        return lower.startsWith("https://www.youtube.com/") || 
-               lower.startsWith("https://youtu.be/") || 
-               lower.startsWith("https://m.youtube.com/") ||
-               lower.startsWith("https://youtube.com/")
+        try {
+            val uri = android.net.Uri.parse(url)
+            if (uri.scheme != "https") return false
+            val host = uri.host?.lowercase() ?: return false
+            return host == "youtube.com" || host == "youtu.be" ||
+                   host == "www.youtube.com" || host == "m.youtube.com" ||
+                   host == "music.youtube.com" ||
+                   host.endsWith(".youtube.com") || host.endsWith(".youtu.be")
+        } catch (e: Exception) {
+            return false
+        }
     }
 
     suspend fun fetchMetadata(url: String): Map<String, Any?> = withContext(Dispatchers.IO) {

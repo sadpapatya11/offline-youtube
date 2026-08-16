@@ -286,7 +286,24 @@ class DownloadQueueManager {
             break;
         }
       },
-      onError: (error) {},
+      onError: (error, stackTrace) {
+        if (kDebugMode) {
+          print('Native event stream error: $error');
+        }
+        for (final t in tasks.where((t) => t.status == DownloadStatus.downloading)) {
+          t.status = DownloadStatus.error;
+          t.hadPreviousError = true;
+          t.errorMessage = 'Platform kanalı hatası: $error';
+          if (activeTaskId == t.id) activeTaskId = null;
+        }
+        saveTasksToStorage();
+        notifyListeners();
+      },
+      onDone: () {
+        if (kDebugMode) {
+          print('Native event stream closed');
+        }
+      },
     );
   }
 

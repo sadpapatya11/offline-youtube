@@ -18,10 +18,8 @@ object CookieHelper {
             val cookieStr = cookieManager.getCookie("https://youtube.com") ?: return null
             if (cookieStr.isEmpty()) return null
 
-            val cookiesFile = File(context.cacheDir, "youtube_cookies.txt")
-            if (cookiesFile.exists()) {
-                cookiesFile.delete()
-            }
+            val tempFile = File(context.cacheDir, "youtube_cookies_tmp_${System.currentTimeMillis()}.txt")
+            val finalFile = File(context.cacheDir, "youtube_cookies.txt")
 
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -29,7 +27,7 @@ object CookieHelper {
 
             val encryptedFile = EncryptedFile.Builder(
                 context,
-                cookiesFile,
+                tempFile,
                 masterKey,
                 EncryptedFile.FileEncryptionScheme.AES256_GCM_HKDF_4KB
             ).build()
@@ -55,8 +53,15 @@ object CookieHelper {
                 }
             }
             cookieManager.flush()
+            
+            // Atomic swap
+            if (finalFile.exists()) {
+                finalFile.delete()
+            }
+            tempFile.renameTo(finalFile)
+            
             Log.d(TAG, "Cookies securely saved")
-            return cookiesFile
+            return finalFile
         } catch (e: Exception) {
             Log.e(TAG, "Error saving cookies", e)
             return null

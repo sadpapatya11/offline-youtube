@@ -28,6 +28,7 @@ class DownloadTask {
   String? downloadedSize;
   int retryCount;
   final DateTime createdAt;
+  DateTime? lastProgressTime;
   // FIX(sync): Görevin hangi oynatma listesinden eklendiğini izler.
   // syncSavedPlaylists yalnızca bu listeye ait bekleyen görevleri temizler —
   // elle eklenen tek videolar asla yanlışlıkla silinmez. Null = tek video.

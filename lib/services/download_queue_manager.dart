@@ -7,8 +7,7 @@ import '../models/download_task.dart';
 import '../services/native_bridge.dart';
 import '../services/network_manager.dart';
 import '../services/storage_manager.dart';
-
-
+import 'package:flutter/foundation.dart';
 class DownloadQueueManager {
   static final DownloadQueueManager instance = DownloadQueueManager._internal();
   DownloadQueueManager._internal();

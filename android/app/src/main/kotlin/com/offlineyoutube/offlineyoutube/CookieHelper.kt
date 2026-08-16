@@ -55,7 +55,7 @@ object CookieHelper {
                 }
             }
             cookieManager.flush()
-            Log.d(TAG, "Cookies securely saved to ${cookiesFile.absolutePath}")
+            Log.d(TAG, "Cookies securely saved")
             return cookiesFile
         } catch (e: Exception) {
             Log.e(TAG, "Error saving cookies", e)

@@ -138,7 +138,7 @@ object YtDlpNativeManager {
                 "url" to url
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Fetch metadata failed for $url: ${e.message}", e)
+            Log.e(TAG, "Fetch metadata failed: ${e.message}", e)
             throw e
         } finally {
             cookieFile?.delete()
@@ -148,6 +148,7 @@ object YtDlpNativeManager {
     suspend fun fetchPlaylistEntries(url: String): List<Map<String, Any?>> = withContext(Dispatchers.IO) {
         var cookieFile: File? = null
         try {
+            if (!isUrlSafe(url)) throw IllegalArgumentException("Unauthorized URL scheme/domain")
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
@@ -258,7 +259,7 @@ object YtDlpNativeManager {
 
             return@withContext entries
         } catch (e: Exception) {
-            Log.e(TAG, "Fetch playlist entries failed for $url: ${e.message}", e)
+            Log.e(TAG, "Fetch playlist entries failed: ${e.message}", e)
             throw e
         } finally {
             cookieFile?.delete()

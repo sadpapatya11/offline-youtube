@@ -171,6 +171,10 @@ class DownloadQueueManager {
               if (activeTaskId == t.id) activeTaskId = null;
               needsUpdate = true;
             }
+          } else {
+            // If lastProgressTime is somehow null but it's downloading, set it to now so it gets caught next time,
+            // or just kill it if we consider it an error state.
+            t.lastProgressTime = now;
           }
         }
         if (needsUpdate) {
@@ -404,6 +408,7 @@ class DownloadQueueManager {
       activeTaskId = nextTask.id;
       nextTask.status = DownloadStatus.downloading;
       nextTask.errorMessage = null;
+      nextTask.lastProgressTime = DateTime.now();
       notifyListeners();
       saveTasksToStorage();
 

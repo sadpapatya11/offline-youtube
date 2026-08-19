@@ -17,10 +17,10 @@ class AppSettings {
   const AppSettings({
     this.maxStorageLimitGB = 20,
     this.maxVideoDurationHours = 6,
-    this.networkMode = NetworkRestrictionMode.anyWifi, // Varsayılan Sadece Wi-Fi
+    this.networkMode = NetworkRestrictionMode.anyWifi, // Varsaylan Sadece Wi-Fi
     this.customDownloadPath = StorageManager.defaultHiddenPath,
     this.autoDownloadOnPaste = true,
-    this.playlistReverseOrder = false,
+    this.playlistReverseOrder = true,
     this.savedPlaylists = const [],
   });
 
@@ -50,7 +50,7 @@ class AppSettings {
         'networkMode': networkMode.index,
         'customDownloadPath': customDownloadPath,
         'autoDownloadOnPaste': autoDownloadOnPaste,
-        'playlistReverseOrderV2': playlistReverseOrder,
+        'playlistReverseOrderV3': playlistReverseOrder,
         'savedPlaylists': savedPlaylists,
       };
 
@@ -62,7 +62,7 @@ class AppSettings {
         customDownloadPath: json['customDownloadPath'] as String? ??
             StorageManager.defaultHiddenPath,
         autoDownloadOnPaste: json['autoDownloadOnPaste'] as bool? ?? true,
-        playlistReverseOrder: json['playlistReverseOrderV2'] as bool? ?? false,
+        playlistReverseOrder: json['playlistReverseOrderV3'] as bool? ?? true,
         savedPlaylists: (json['savedPlaylists'] as List<dynamic>?)
                 ?.map((e) => e.toString())
                 .toList() ??

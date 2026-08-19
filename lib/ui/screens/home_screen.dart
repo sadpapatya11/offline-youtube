@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../utils/snackbar_helper.dart';
 import '../../models/playlist_entry.dart';
 import 'playlist_selection_screen.dart';
 import '../../providers/download_provider.dart';
@@ -58,17 +59,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _triggerDownload(String url) async {
     final cleanUrl = DownloadProvider.extractYouTubeUrl(url);
     if (cleanUrl == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Lütfen geçerli bir YouTube video veya liste linki girin.'),
-          backgroundColor: Color(0xFF330000),
-          duration: Duration(seconds: 2),
-        ),
+      SnackbarHelper.showTop(
+        context,
+        'Lütfen geçerli bir YouTube video veya liste linki girin.',
+        backgroundColor: const Color(0xFF330000),
       );
       return;
     }
 
-    // Arama kutusuna sadece temiz linki geri yaz
     if (_urlController.text != cleanUrl) {
       _urlController.text = cleanUrl;
     }
@@ -99,55 +97,43 @@ class _HomeScreenState extends State<HomeScreen> {
         });
 
         if (result.entries.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Oynatma listesinde indirilebilir video bulunamadı.'),
-              backgroundColor: Color(0xFF330000),
-              duration: Duration(seconds: 4),
-            ),
+          SnackbarHelper.showTop(
+            context,
+            'Oynatma listesinde indirilebilir video bulunamadı veya tümü zaten indirilmiş.',
+            backgroundColor: const Color(0xFF330000),
           );
         } else {
-          final selected = await Navigator.push<List<PlaylistEntry>>(
-            context,
-            MaterialPageRoute(
-              builder: (_) => PlaylistSelectionScreen(result: result),
-            ),
+          final selected = [result.entries.first];
+
+          final addError = await downloadProvider.addSelectedEntries(
+            entries: selected,
+            settings: settingsProvider.settings,
+            sourcePlaylistUrl: cleanUrl,
+            truncatedCount: result.truncatedCount,
+            totalCount: result.totalCount,
           );
 
-          if (selected != null && selected.isNotEmpty) {
-            final addError = await downloadProvider.addSelectedEntries(
-              entries: selected,
-              settings: settingsProvider.settings,
-              sourcePlaylistUrl: cleanUrl,
-              truncatedCount: result.truncatedCount,
-              totalCount: result.totalCount,
+          if (!mounted) return;
+
+          if (addError != null) {
+            SnackbarHelper.showTop(
+              context,
+              addError,
+              backgroundColor: const Color(0xFF330000),
             );
-
-            if (!mounted) return;
-
-            if (addError != null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(addError),
-                  backgroundColor: const Color(0xFF330000),
-                  duration: const Duration(seconds: 4),
-                ),
-              );
-            } else {
-              _urlController.clear();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('⚡ Seçilen videolar kuyruğa eklendi!'),
-                  backgroundColor: const Color(0xFF003311),
-                  duration: const Duration(seconds: 2),
-                  action: SnackBarAction(
-                    label: 'Kuyruğu Gör',
-                    textColor: AmoledTheme.pureWhite,
-                    onPressed: widget.onNavigateToQueue,
-                  ),
-                ),
-              );
-            }
+          } else {
+            _urlController.clear();
+            SnackbarHelper.showTop(
+              context,
+              '⚡ En güncel video kuyruğa eklendi! (${selected.first.title})',
+              backgroundColor: const Color(0xFF003311),
+              duration: const Duration(seconds: 2),
+              action: SnackBarAction(
+                label: 'Kuyruğu Gör',
+                textColor: AmoledTheme.pureWhite,
+                onPressed: widget.onNavigateToQueue,
+              ),
+            );
           }
         }
       }
@@ -160,34 +146,23 @@ class _HomeScreenState extends State<HomeScreen> {
       });
 
       if (error != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error),
-            backgroundColor: const Color(0xFF330000),
-            duration: const Duration(seconds: 4),
-          ),
+        SnackbarHelper.showTop(
+          context,
+          error,
+          backgroundColor: const Color(0xFF330000),
         );
       } else {
         _urlController.clear();
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('⚡ İndirme otomatik olarak başlatıldı!'),
-            backgroundColor: const Color(0xFF003311),
-            duration: const Duration(seconds: 2),
-            action: SnackBarAction(
-              label: 'Kuyruğu Gör',
-              textColor: AmoledTheme.pureWhite,
-              onPressed: widget.onNavigateToQueue,
-            ),
+        SnackbarHelper.showTop(
+          context,
+          '⚡ Video kuyruğa eklendi!',
+          backgroundColor: const Color(0xFF003311),
+          action: SnackBarAction(
+            label: 'Kuyruğu Gör',
+            textColor: AmoledTheme.pureWhite,
+            onPressed: widget.onNavigateToQueue,
           ),
         );
-        // Zorunlu gizleme (Action olan snackbarlar bazı cihazlarda takılı kalabiliyor)
-        Future.delayed(const Duration(seconds: 2), () {
-          if (mounted) {
-            ScaffoldMessenger.of(context).hideCurrentSnackBar();
-          }
-        });
       }
     }
   }

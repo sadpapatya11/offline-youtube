@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/youtube/v3.dart' as yt;
+import 'dart:math';
 import 'package:http/http.dart' as http;
 
 class _GoogleAuthClient extends http.BaseClient {
@@ -96,8 +97,10 @@ class YoutubeApiService {
 
       try {
         // Doğal kullanıcı davranışı taklidi ve API sınırlarına takılmamak için
-        // her işlem öncesi 3-5 saniye (yapay) gecikme ekliyoruz.
-        await Future.delayed(const Duration(seconds: 4));
+        // her işlem öncesi 1 ile 10 saniye arası (yapay) rastgele gecikme ekliyoruz.
+        final randomDelay = Random().nextInt(10) + 1; // 1 to 10 seconds
+        debugPrint('YouTube API delay: $randomDelay seconds before next delete...');
+        await Future.delayed(Duration(seconds: randomDelay));
         await _executeDelete(playlistId, videoId);
       } catch (e) {
         debugPrint('YouTube Playlist API Error: $e');

@@ -332,10 +332,10 @@ object YtDlpNativeManager {
                 // Safe formatting: 50-char max title (50 chars * up to 4 bytes/char = 200 bytes) + unique video id keeps the full filename, incl. sidecar suffixes like [id].f137.mp4.part, under Android's 255-byte filename limit without slicing multi-byte UTF-8 chars
                 addOption("-o", "${outputDir.absolutePath}/%(title).50s [%(id)s].%(ext)s")
                 // FIX(quality): YTDLnis-inspired format selection chain for maximum resolution:
-                // 1. bestvideo[ext=mp4]+bestaudio[ext=m4a] → HW-decode-friendly, birleştirmesi sorunsuz
-                // 2. bestvideo+bestaudio → VP9/AV1 4K/8K dahil herhangi codec (FFmpeg remux gerekebilir)
-                // 3. best → Önceden birleştirilmiş en iyi kalite (fallback)
-                addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best")
+                // Sadece ext=mp4 ile sınırlamak, YouTube'un yüksek çözünürlükleri sadece vp9/webm
+                // olarak sunduğu durumlarda çözünürlüğü 480p'ye düşürebilir. Bu yüzden her codec
+                // kabul ediliyor (bestvideo+bestaudio) ve sonrasında ffmpeg ile mp4'e remux ediliyor.
+                addOption("-f", "bestvideo+bestaudio/best")
                 // Çözünürlüğü ve codec kalitesini en yükseğe zorla (8K > 4K > 1080p sıralaması)
                 addOption("-S", "res,vcodec:h265,vcodec:h264,acodec:aac")
                 

@@ -17,7 +17,7 @@ class AppSettings {
   const AppSettings({
     this.maxStorageLimitGB = 20,
     this.maxVideoDurationHours = 6,
-    this.networkMode = NetworkRestrictionMode.allNetworks, // Varsayılan tüm ağlar (mobil veri + wifi)
+    this.networkMode = NetworkRestrictionMode.anyWifi, // Varsayılan Sadece Wi-Fi
     this.customDownloadPath = StorageManager.defaultHiddenPath,
     this.autoDownloadOnPaste = true,
     this.playlistReverseOrder = true,
@@ -58,7 +58,7 @@ class AppSettings {
         maxStorageLimitGB: json['maxStorageLimitGB'] as int? ?? 20,
         maxVideoDurationHours: json['maxVideoDurationHours'] as int? ?? 6,
         networkMode: NetworkRestrictionMode.values[
-            (json['networkMode'] as int? ?? 1).clamp(0, NetworkRestrictionMode.values.length - 1)],
+            (json['networkMode'] as int? ?? 0).clamp(0, NetworkRestrictionMode.values.length - 1)],
         customDownloadPath: json['customDownloadPath'] as String? ??
             StorageManager.defaultHiddenPath,
         autoDownloadOnPaste: json['autoDownloadOnPaste'] as bool? ?? true,

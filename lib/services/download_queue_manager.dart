@@ -4,9 +4,11 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
 import '../models/download_task.dart';
+import '../models/video_item.dart';
 import '../services/native_bridge.dart';
 import '../services/network_manager.dart';
 import '../services/storage_manager.dart';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 class DownloadQueueManager {
   static final DownloadQueueManager instance = DownloadQueueManager._internal();
@@ -236,6 +238,30 @@ class DownloadQueueManager {
               activeTaskId = null;
             }
             saveTasksToStorage();
+
+            // Kaydedilen videonun metadata'sını .meta.json'a yaz (böylece playlistUrl kalıcı olur)
+            try {
+              final vid = VideoItem.extractVideoId(task.url);
+              if (vid != null) {
+                final dir = Directory(StorageManager.instance.currentDownloadPath);
+                if (dir.existsSync()) {
+                  final files = dir.listSync();
+                  for (final file in files) {
+                    if (file is File && file.path.contains('[$vid].') && !file.path.endsWith('.meta.json')) {
+                      await StorageManager.instance.saveVideoMetadata(
+                        file.path,
+                        url: task.url,
+                        playlistUrl: task.sourcePlaylistUrl,
+                        title: task.title,
+                      );
+                      break;
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              if (kDebugMode) print('Meta save error: $e');
+            }
             
             if (onLibraryNeedsRefresh != null) {
               onLibraryNeedsRefresh!();

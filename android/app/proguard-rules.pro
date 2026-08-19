@@ -10,3 +10,7 @@
 -keep class com.chaquo.python.** { *; }
 -keep class com.sun.jna.** { *; }
 -keepclassmembers class * extends com.sun.jna.* { public *; }
+
+# Apache Commons Compress (youtubedl-android'in ZipFile açma işlemleri için zorunludur)
+-keep class org.apache.commons.compress.** { *; }
+-dontwarn org.apache.commons.compress.**

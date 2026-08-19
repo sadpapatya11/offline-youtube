@@ -86,57 +86,66 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (error == 'PLAYLIST_URL') {
-      final result = await downloadProvider.resolvePlaylist(
-        url: cleanUrl,
-        settings: settingsProvider.settings,
-      );
+      try {
+        final result = await downloadProvider.resolvePlaylist(
+          url: cleanUrl,
+          settings: settingsProvider.settings,
+        );
 
-      if (mounted) {
-        setState(() {
-          _isProcessing = false;
-        });
+        if (mounted) {
+          setState(() {
+            _isProcessing = false;
+          });
 
-        if (result.entries.isEmpty) {
-          SnackbarHelper.showTop(
-            context,
-            'Oynatma listesinde indirilebilir video bulunamadı veya tümü zaten indirilmiş.',
-            backgroundColor: const Color(0xFF330000),
-          );
-        } else {
-          // Kullanıcının isteği: Sadece en güncel olan 1 adet videoyu kuyruğa ekle.
-          // result.entries zaten indirilmemiş olan videoları en güncelden eskiye sıralı şekilde getiriyor.
-          final selected = result.entries.take(1).toList();
-
-          final addError = await downloadProvider.addSelectedEntries(
-            entries: selected,
-            settings: settingsProvider.settings,
-            sourcePlaylistUrl: cleanUrl,
-            truncatedCount: result.truncatedCount,
-            totalCount: result.totalCount,
-          );
-
-          if (!mounted) return;
-
-          if (addError != null) {
+          if (result.entries.isEmpty) {
             SnackbarHelper.showTop(
               context,
-              addError,
+              'Oynatma listesinde indirilebilir video bulunamadı veya tümü zaten indirilmiş.',
               backgroundColor: const Color(0xFF330000),
             );
           } else {
-            _urlController.clear();
-            SnackbarHelper.showTop(
-              context,
-              '⚡ En güncel video kuyruğa eklendi! (Kalan yeni video sayısı: ${result.entries.length - 1})',
-              backgroundColor: const Color(0xFF003311),
-              duration: const Duration(seconds: 2),
-              action: SnackBarAction(
-                label: 'Kuyruğu Gör',
-                textColor: AmoledTheme.pureWhite,
-                onPressed: widget.onNavigateToQueue,
-              ),
+            // Kullanıcının isteği: Sadece en güncel olan 1 adet videoyu kuyruğa ekle.
+            // result.entries zaten indirilmemiş olan videoları en güncelden eskiye sıralı şekilde getiriyor.
+            final selected = result.entries.take(1).toList();
+
+            final addError = await downloadProvider.addSelectedEntries(
+              entries: selected,
+              settings: settingsProvider.settings,
+              sourcePlaylistUrl: cleanUrl,
+              truncatedCount: result.truncatedCount,
+              totalCount: result.totalCount,
             );
+
+            if (!mounted) return;
+
+            if (addError != null) {
+              SnackbarHelper.showTop(
+                context,
+                addError,
+                backgroundColor: const Color(0xFF330000),
+              );
+            } else {
+              _urlController.clear();
+              SnackbarHelper.showTop(
+                context,
+                '⚡ En güncel video kuyruğa eklendi! (Kalan yeni video sayısı: ${result.entries.length - 1})',
+                backgroundColor: const Color(0xFF003311),
+                duration: const Duration(seconds: 2),
+                action: SnackBarAction(
+                  label: 'Kuyruğu Gör',
+                  textColor: AmoledTheme.pureWhite,
+                  onPressed: widget.onNavigateToQueue,
+                ),
+              );
+            }
           }
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _isProcessing = false;
+          });
+          SnackbarHelper.showTop(context, e.toString(), backgroundColor: const Color(0xFF330000));
         }
       }
       return;

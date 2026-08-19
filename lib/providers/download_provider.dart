@@ -339,7 +339,14 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     required String url,
     required AppSettings settings,
   }) async {
-    final rawEntries = await NativeBridge.instance.fetchPlaylistEntries(url);
+    List<Map<String, dynamic>> rawEntries = [];
+    try {
+      rawEntries = await NativeBridge.instance.fetchPlaylistEntries(url);
+    } catch (e) {
+      print('resolvePlaylist native error: $e');
+      throw Exception('Liste çekilemedi: Hata oluştu veya desteklenmeyen format. Detay: $e');
+    }
+
     if (rawEntries.isEmpty) {
       return PlaylistFetchResult(entries: const [], totalCount: 0, sourceUrl: url);
     }

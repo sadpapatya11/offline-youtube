@@ -50,7 +50,7 @@ class AppSettings {
         'networkMode': networkMode.index,
         'customDownloadPath': customDownloadPath,
         'autoDownloadOnPaste': autoDownloadOnPaste,
-        'playlistReverseOrder': playlistReverseOrder,
+        'playlistReverseOrderV2': playlistReverseOrder,
         'savedPlaylists': savedPlaylists,
       };
 
@@ -62,7 +62,7 @@ class AppSettings {
         customDownloadPath: json['customDownloadPath'] as String? ??
             StorageManager.defaultHiddenPath,
         autoDownloadOnPaste: json['autoDownloadOnPaste'] as bool? ?? true,
-        playlistReverseOrder: json['playlistReverseOrder'] as bool? ?? false,
+        playlistReverseOrder: json['playlistReverseOrderV2'] as bool? ?? false,
         savedPlaylists: (json['savedPlaylists'] as List<dynamic>?)
                 ?.map((e) => e.toString())
                 .toList() ??

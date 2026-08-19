@@ -103,9 +103,9 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: const Color(0xFF330000),
           );
         } else {
-          // Kullanıcının isteği: Sadece 1 tane değil, tüm oynatma listesindeki videoları 'tek tek' kuyruğa ekle.
+          // Kullanıcının isteği: Sadece en güncel olan 1 adet videoyu kuyruğa ekle.
           // result.entries zaten indirilmemiş olan videoları en güncelden eskiye sıralı şekilde getiriyor.
-          final selected = result.entries;
+          final selected = result.entries.take(1).toList();
 
           final addError = await downloadProvider.addSelectedEntries(
             entries: selected,
@@ -127,7 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _urlController.clear();
             SnackbarHelper.showTop(
               context,
-              '⚡ Tüm yeni videolar (toplam ${selected.length}) kuyruğa eklendi! En güncelden başlanacak.',
+              '⚡ En güncel video kuyruğa eklendi! (Kalan yeni video sayısı: ${result.entries.length - 1})',
               backgroundColor: const Color(0xFF003311),
               duration: const Duration(seconds: 2),
               action: SnackBarAction(

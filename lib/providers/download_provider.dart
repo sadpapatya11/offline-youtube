@@ -344,7 +344,13 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       return PlaylistFetchResult(entries: const [], totalCount: 0, sourceUrl: url);
     }
 
-    final ordered = settings.playlistReverseOrder ? rawEntries : rawEntries.reversed.toList();
+    // yt-dlp, kanalları (/@channel) en yeni en üstte getirir.
+    // Ancak standart oynatma listelerini (?list=...) genelde en eski en üstte (eklenme sırası) getirir.
+    // Kullanıcı hep "en güncel"i istediği için, standart listeyse tersine çevirelim ki en yeniler üstte olsun.
+    bool isStandardPlaylist = url.contains('list=') && !url.contains('@') && !url.contains('/channel/');
+    bool shouldReverse = settings.playlistReverseOrder || isStandardPlaylist;
+    
+    final ordered = shouldReverse ? rawEntries.reversed.toList() : rawEntries;
     final totalCount = ordered.length;
     final limited = totalCount > maxPlaylistEntries ? ordered.sublist(0, maxPlaylistEntries) : ordered;
 

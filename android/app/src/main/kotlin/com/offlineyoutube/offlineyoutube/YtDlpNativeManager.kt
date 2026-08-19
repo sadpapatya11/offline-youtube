@@ -336,8 +336,9 @@ object YtDlpNativeManager {
                 // olarak sunduğu durumlarda çözünürlüğü 480p'ye düşürebilir. Bu yüzden her codec
                 // kabul ediliyor (bestvideo+bestaudio) ve sonrasında ffmpeg ile mp4'e remux ediliyor.
                 addOption("-f", "bestvideo+bestaudio/best")
-                // YTDLnis gibi en iyi kaliteyi getirmesi için yt-dlp'nin kendi varsayılan sıralamasına bırakıyoruz.
-                // -S ile vcodec:h264/h265 zorlaması AV1 ve VP9 (4K/8K) kalitelerinin seçilmesini engelliyordu, bu yüzden -S kısıtlaması tamamen kaldırıldı.
+                // Çözünürlüğü ve codec kalitesini en yükseğe zorla (YTDL-nis gibi varsayılan en iyi sıralamayı kullanır)
+                // -S parametresini kaldırdık çünkü h264'ü önceliklendirmek 1080p'yi 720p'ye düşürebilir (YouTube'un yüksek çözünürlükleri genelde VP9 veya AV1'dir).
+                // yt-dlp varsayılan olarak en yüksek çözünürlüğü ve bitrate'i seçecektir.
                 // 1. FFmpeg Remuxing — container birleştirme (re-encode YOK, sadece kapsayıcı değiştirir)
                 addOption("--merge-output-format", "mp4")
                 addOption("--postprocessor-args", "ffmpeg:-threads $ffmpegThreads")
@@ -375,9 +376,9 @@ object YtDlpNativeManager {
                 
                 // 6. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
                 addOption("--limit-rate", dynamicRateLimit)
-                addOption("--sleep-interval", "2")
-                addOption("--max-sleep-interval", "60")
-                addOption("--retry-sleep", "5")
+                addOption("--sleep-interval", "1")
+                addOption("--max-sleep-interval", "3")
+                addOption("--retry-sleep", "3")
                 addOption("--retries", "10")
                 addOption("--fragment-retries", "10")
             }

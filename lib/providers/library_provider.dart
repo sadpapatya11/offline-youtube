@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/trashed_video_item.dart';
 import '../models/video_item.dart';
 import '../services/storage_manager.dart';
+import '../services/youtube_api_service.dart';
 
 class LibraryProvider extends ChangeNotifier {
   List<VideoItem> _videos = [];
@@ -39,7 +40,14 @@ class LibraryProvider extends ChangeNotifier {
     }
 
     // 24 saati geçmiş çöpleri otomatik temizle
-    _trashedVideos = await StorageManager.instance.purgeExpiredTrash();
+    final purged = await StorageManager.instance.purgeExpiredTrash();
+    // Silinenleri API kuyruğuna ekle
+    for (final t in purged) {
+      YoutubeApiService().enqueueDeletion(t.video.playlistUrl, t.video.youtubeId);
+    }
+    
+    // Geriye kalan (süresi dolmamış) çöpleri yükle
+    _trashedVideos = await StorageManager.instance.loadTrashIndex();
     _videos = await StorageManager.instance.scanDownloadedVideos();
     
     _applySort();
@@ -124,6 +132,9 @@ class LibraryProvider extends ChangeNotifier {
   Future<bool> deletePermanently(TrashedVideoItem trashed) async {
     final success = await StorageManager.instance.permanentlyDelete(trashed);
     if (success) {
+      // YouTube'dan da kalıcı olarak sil (Kullanıcı Feedback)
+      YoutubeApiService().enqueueDeletion(trashed.video.playlistUrl, trashed.video.youtubeId);
+
       _trashedVideos.removeWhere((t) => t.video.id == trashed.video.id);
       _totalUsedBytes = await StorageManager.instance.getUsedStorageBytes();
       notifyListeners();
@@ -133,8 +144,16 @@ class LibraryProvider extends ChangeNotifier {
 
   /// Geri Dönüşüm Kutusundaki tüm videoları kalıcı olarak siler
   Future<bool> emptyTrash() async {
+    // API için listeyi kopyalayalım
+    final toDelete = List<TrashedVideoItem>.from(_trashedVideos);
+    
     final success = await StorageManager.instance.emptyTrash();
     if (success) {
+      // Silinenleri YouTube kuyruğuna aktar
+      for (final t in toDelete) {
+        YoutubeApiService().enqueueDeletion(t.video.playlistUrl, t.video.youtubeId);
+      }
+
       _trashedVideos.clear();
       _totalUsedBytes = await StorageManager.instance.getUsedStorageBytes();
       notifyListeners();

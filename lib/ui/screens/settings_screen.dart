@@ -6,6 +6,7 @@ import '../../models/app_settings.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../../providers/download_provider.dart';
+import '../../services/youtube_api_service.dart';
 import '../../services/native_bridge.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
@@ -202,6 +203,77 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     },
                     child: const Text('Giriş Yap'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // 1.6 Google Hesabı (Otomatik YouTube Silme)
+            AmoledCard(
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4285F4).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.cloud_sync_rounded,
+                      color: Color(0xFF4285F4),
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Google Hesabını Bağla',
+                          style: TextStyle(
+                            color: AmoledTheme.pureWhite,
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          YoutubeApiService().currentUser != null
+                              ? 'Bağlı: ${YoutubeApiService().currentUser!.email}'
+                              : 'Çöp kutusundaki videoları YouTube\'dan otomatik kalıcı silmek için.',
+                          style: const TextStyle(color: AmoledTheme.subText, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: YoutubeApiService().currentUser != null
+                          ? const Color(0xFF333333)
+                          : const Color(0xFF4285F4),
+                    ),
+                    onPressed: () async {
+                      if (YoutubeApiService().currentUser != null) {
+                        await YoutubeApiService().signOut();
+                        setState(() {});
+                      } else {
+                        final account = await YoutubeApiService().signIn();
+                        if (account == null) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Giriş başarısız. Package Name (com.offlineyoutube.offlineyoutube) veya SHA-1 hatalı olabilir.'),
+                              backgroundColor: AmoledTheme.brandRed,
+                            ),
+                          );
+                        } else {
+                          setState(() {});
+                        }
+                      }
+                    },
+                    child: Text(YoutubeApiService().currentUser != null ? 'Çıkış' : 'Bağla'),
                   ),
                 ],
               ),

@@ -431,9 +431,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       _manager.tasks.add(DownloadTask(
         id: '${DateTime.now().millisecondsSinceEpoch}_$i',
         url: entry.url,
-        title: 'Bilgiler alınıyor...',
+        title: entry.title,
         status: DownloadStatus.queued,
         sourcePlaylistUrl: sourcePlaylistUrl,
+        thumbnail: entry.thumbnail,
       ));
       addedCount++;
     }

@@ -336,9 +336,8 @@ object YtDlpNativeManager {
                 // olarak sunduğu durumlarda çözünürlüğü 480p'ye düşürebilir. Bu yüzden her codec
                 // kabul ediliyor (bestvideo+bestaudio) ve sonrasında ffmpeg ile mp4'e remux ediliyor.
                 addOption("-f", "bestvideo+bestaudio/best")
-                // Çözünürlüğü ve codec kalitesini en yükseğe zorla (8K > 4K > 1080p sıralaması)
-                addOption("-S", "res,vcodec:h265,vcodec:h264,acodec:aac")
-                
+                // YTDLnis gibi en iyi kaliteyi getirmesi için yt-dlp'nin kendi varsayılan sıralamasına bırakıyoruz.
+                // -S ile vcodec:h264/h265 zorlaması AV1 ve VP9 (4K/8K) kalitelerinin seçilmesini engelliyordu, bu yüzden -S kısıtlaması tamamen kaldırıldı.
                 // 1. FFmpeg Remuxing — container birleştirme (re-encode YOK, sadece kapsayıcı değiştirir)
                 addOption("--merge-output-format", "mp4")
                 addOption("--postprocessor-args", "ffmpeg:-threads $ffmpegThreads")

@@ -20,7 +20,7 @@ class AppSettings {
     this.networkMode = NetworkRestrictionMode.anyWifi, // Varsayılan Sadece Wi-Fi
     this.customDownloadPath = StorageManager.defaultHiddenPath,
     this.autoDownloadOnPaste = true,
-    this.playlistReverseOrder = true,
+    this.playlistReverseOrder = false,
     this.savedPlaylists = const [],
   });
 
@@ -62,7 +62,7 @@ class AppSettings {
         customDownloadPath: json['customDownloadPath'] as String? ??
             StorageManager.defaultHiddenPath,
         autoDownloadOnPaste: json['autoDownloadOnPaste'] as bool? ?? true,
-        playlistReverseOrder: json['playlistReverseOrder'] as bool? ?? true,
+        playlistReverseOrder: json['playlistReverseOrder'] as bool? ?? false,
         savedPlaylists: (json['savedPlaylists'] as List<dynamic>?)
                 ?.map((e) => e.toString())
                 .toList() ??

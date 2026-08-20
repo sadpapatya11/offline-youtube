@@ -301,6 +301,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       final duration = (metadata['duration'] as num?)?.toInt() ?? 0;
       final thumbnail = metadata['thumbnail'] as String?;
       final uploader = metadata['uploader'] as String?;
+      final uploadDate = metadata['uploadDate'] as String?;
 
       final downloadedVideos = await StorageManager.instance.scanDownloadedVideos();
       final currentTotalSec = downloadedVideos.fold<int>(0, (sum, v) => sum + (v.durationSeconds ?? 0));
@@ -318,6 +319,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       task.durationSeconds = duration;
       task.thumbnail = thumbnail;
       task.uploader = uploader;
+      task.uploadDate = uploadDate;
       task.status = DownloadStatus.queued;
       _manager.saveTasksToStorage();
       _manager.notifyListeners();
@@ -447,6 +449,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         durationSeconds: entry.durationSeconds,
         thumbnail: entry.thumbnail,
         uploader: entry.uploader,
+        uploadDate: entry.uploadDate,
         status: DownloadStatus.queued,
         sourcePlaylistUrl: sourcePlaylistUrl,
       ));

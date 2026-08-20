@@ -181,6 +181,7 @@ class StorageManager {
     String videoFilePath, {
     int? durationSeconds,
     String? uploader,
+    String? uploadDate,
     String? title,
     String? url,
     String? playlistUrl,
@@ -193,6 +194,7 @@ class StorageManager {
       final data = {
         'durationSeconds': durationSeconds,
         'uploader': uploader,
+        'uploadDate': uploadDate,
         'title': title,
         'url': url,
         'playlistUrl': playlistUrl,
@@ -257,6 +259,7 @@ class StorageManager {
 
             int? durationSeconds;
             String? uploader;
+            String? uploadDate;
             String? sourceUrl;
             String? playlistUrl;
             String displayTitle = title;
@@ -267,6 +270,7 @@ class StorageManager {
                 final metaJson = jsonDecode(content) as Map<String, dynamic>;
                 durationSeconds = metaJson['durationSeconds'] as int?;
                 uploader = metaJson['uploader'] as String?;
+                uploadDate = metaJson['uploadDate'] as String?;
                 sourceUrl = metaJson['url'] as String?;
                 playlistUrl = metaJson['playlistUrl'] as String?;
                 if (metaJson['title'] != null &&
@@ -286,6 +290,7 @@ class StorageManager {
               fileSizeBytes: exactSize,
               durationSeconds: durationSeconds,
               uploader: uploader,
+              uploadDate: uploadDate,
               downloadedAt: stat.modified,
               thumbnailPath: thumbPath,
               subtitlePath: subtitlePath,

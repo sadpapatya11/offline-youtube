@@ -12,6 +12,7 @@ class PlaylistEntry {
 
   final String? thumbnail;
   final String? uploader;
+  final String? uploadDate;
 
   /// Video zaten kuyrukta ya da kütüphanede mi. Seçim ekranı bunu işaretler ve
   /// varsayılan seçime dahil etmez; kullanıcı isterse yine seçebilir.
@@ -23,6 +24,7 @@ class PlaylistEntry {
     this.durationSeconds = 0,
     this.thumbnail,
     this.uploader,
+    this.uploadDate,
     this.alreadyPresent = false,
   });
 

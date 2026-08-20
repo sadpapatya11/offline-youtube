@@ -12,6 +12,7 @@ class VideoItem {
   final String? subtitlePath;
   final String? sourceUrl;
   final String? playlistUrl;
+  final String? uploadDate;
 
   VideoItem({
     required this.id,
@@ -25,6 +26,7 @@ class VideoItem {
     this.subtitlePath,
     this.sourceUrl,
     this.playlistUrl,
+    this.uploadDate,
   });
 
   bool get exists => File(filePath).existsSync();
@@ -62,6 +64,17 @@ class VideoItem {
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
+  String get formattedDisplayDate {
+    if (uploadDate != null && uploadDate!.length == 8) {
+      final y = uploadDate!.substring(0, 4);
+      final m = uploadDate!.substring(4, 6);
+      final d = uploadDate!.substring(6, 8);
+      return '$d.$m.$y';
+    }
+    // Fallback to downloadedAt if no uploadDate exists
+    return '${downloadedAt.day.toString().padLeft(2, '0')}.${downloadedAt.month.toString().padLeft(2, '0')}.${downloadedAt.year}';
+  }
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
@@ -74,6 +87,7 @@ class VideoItem {
         'subtitlePath': subtitlePath,
         'sourceUrl': sourceUrl,
         'playlistUrl': playlistUrl,
+        'uploadDate': uploadDate,
       };
 
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
@@ -88,5 +102,6 @@ class VideoItem {
         subtitlePath: json['subtitlePath'] as String?,
         sourceUrl: json['sourceUrl'] as String?,
         playlistUrl: json['playlistUrl'] as String?,
+        uploadDate: json['uploadDate'] as String?,
       );
 }

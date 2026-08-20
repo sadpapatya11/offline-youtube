@@ -17,6 +17,7 @@ class DownloadTask {
   String? thumbnail;
   int? durationSeconds;
   String? uploader;
+  String? uploadDate;
   int? estimatedSizeBytes;
   DownloadStatus status;
   double progress; // 0.0 - 100.0
@@ -41,6 +42,7 @@ class DownloadTask {
     this.thumbnail,
     this.durationSeconds,
     this.uploader,
+    this.uploadDate,
     this.estimatedSizeBytes,
     this.status = DownloadStatus.queued,
     this.progress = 0.0,
@@ -142,6 +144,7 @@ class DownloadTask {
     String? thumbnail,
     int? durationSeconds,
     String? uploader,
+    String? uploadDate,
     int? estimatedSizeBytes,
   }) {
     return DownloadTask(
@@ -151,6 +154,7 @@ class DownloadTask {
       thumbnail: thumbnail ?? this.thumbnail,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       uploader: uploader ?? this.uploader,
+      uploadDate: uploadDate ?? this.uploadDate,
       estimatedSizeBytes: estimatedSizeBytes ?? this.estimatedSizeBytes,
       status: status ?? this.status,
       progress: progress ?? this.progress,
@@ -173,6 +177,7 @@ class DownloadTask {
       'thumbnail': thumbnail,
       'durationSeconds': durationSeconds,
       'uploader': uploader,
+      'uploadDate': uploadDate,
       'estimatedSizeBytes': estimatedSizeBytes,
       'status': status.name,
       'progress': progress,
@@ -216,6 +221,7 @@ class DownloadTask {
     final rawTitle = cleanStr(json['title']);
     final rawThumb = cleanStr(json['thumbnail']);
     final rawUploader = cleanStr(json['uploader']);
+    final rawUploadDate = cleanStr(json['uploadDate']);
     final rawTotalSize = cleanStr(json['totalSize']);
     final rawDownloadedSize = cleanStr(json['downloadedSize']);
 
@@ -226,6 +232,7 @@ class DownloadTask {
       thumbnail: rawThumb.isNotEmpty ? rawThumb : null,
       durationSeconds: toIntOrNull(json['durationSeconds']),
       uploader: rawUploader.isNotEmpty ? rawUploader : null,
+      uploadDate: rawUploadDate.isNotEmpty ? rawUploadDate : null,
       estimatedSizeBytes: toIntOrNull(json['estimatedSizeBytes']),
       status: parsedStatus,
       progress: (json['progress'] as num?)?.toDouble() ?? 0.0,

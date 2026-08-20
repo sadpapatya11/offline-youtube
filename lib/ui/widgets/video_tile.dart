@@ -24,7 +24,6 @@ class VideoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateFormat = DateFormat('dd.MM.yyyy HH:mm');
     final hasLocalThumb = video.thumbnailPath != null &&
         video.thumbnailPath!.isNotEmpty &&
         File(video.thumbnailPath!).existsSync();
@@ -251,7 +250,7 @@ class VideoTile extends StatelessWidget {
                     // Tarih
                     Expanded(
                       child: Text(
-                        dateFormat.format(video.downloadedAt),
+                        video.formattedDisplayDate,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(

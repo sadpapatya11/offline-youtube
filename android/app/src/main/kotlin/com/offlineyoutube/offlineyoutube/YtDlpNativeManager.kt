@@ -167,6 +167,7 @@ object YtDlpNativeManager {
                 addOption("--geo-bypass-country", "TR")
                 addOption("--sleep-requests", "1.0")
                 addOption("--flat-playlist")
+                addOption("--playlist-reverse")
                 addOption("-J")
                 appContext?.let { ctx ->
                     cookieFile = CookieHelper.saveCookies(ctx)
@@ -336,9 +337,8 @@ object YtDlpNativeManager {
                 // olarak sunduğu durumlarda çözünürlüğü 480p'ye düşürebilir. Bu yüzden her codec
                 // kabul ediliyor (bestvideo+bestaudio) ve sonrasında ffmpeg ile mp4'e remux ediliyor.
                 addOption("-f", "bestvideo+bestaudio/best")
-                // Çözünürlüğü ve codec kalitesini en yükseğe zorla (YTDL-nis gibi varsayılan en iyi sıralamayı kullanır)
-                // -S parametresini kaldırdık çünkü h264'ü önceliklendirmek 1080p'yi 720p'ye düşürebilir (YouTube'un yüksek çözünürlükleri genelde VP9 veya AV1'dir).
-                // yt-dlp varsayılan olarak en yüksek çözünürlüğü ve bitrate'i seçecektir.
+                // Kullanıcının codec önceliği: en yüksek çözünürlük > AV1 > VP9 > H.264
+                addOption("-S", "res,vcodec:av1,vcodec:vp9,vcodec:h264")
                 // 1. FFmpeg Remuxing — container birleştirme (re-encode YOK, sadece kapsayıcı değiştirir)
                 addOption("--merge-output-format", "mp4")
                 addOption("--postprocessor-args", "ffmpeg:-threads $ffmpegThreads")

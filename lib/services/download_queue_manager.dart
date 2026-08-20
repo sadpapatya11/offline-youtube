@@ -243,6 +243,9 @@ class DownloadQueueManager {
                         url: task.url,
                         playlistUrl: task.sourcePlaylistUrl,
                         title: task.title,
+                        uploader: task.uploader,
+                        uploadDate: task.uploadDate,
+                        durationSeconds: task.durationSeconds,
                       );
                       break;
                     }

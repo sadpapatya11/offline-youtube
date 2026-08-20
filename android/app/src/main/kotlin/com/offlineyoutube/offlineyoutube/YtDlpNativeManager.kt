@@ -119,10 +119,10 @@ object YtDlpNativeManager {
                 addOption(
                     "--extractor-args",
                     if (isPlaylist) "youtube:lang=tr"
-                    else "youtube:player_client=tv,ios,web_safari,web;lang=tr;player_skip=webpage,configs"
+                    else "youtube:player_client=ios,android,web;lang=tr"
                 )
                 addOption("--geo-bypass-country", "TR")
-                addOption("--sleep-requests", "0")
+                addOption("--sleep-requests", "1.0")
                 if (isPlaylist) {
                     addOption("--flat-playlist")
                 } else {
@@ -324,9 +324,9 @@ object YtDlpNativeManager {
                 addOption("--no-cache-dir")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
                 addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
-                addOption("--extractor-args", "youtube:player_client=tv,ios,web_safari,web;lang=tr;player_skip=webpage,configs")
+                addOption("--extractor-args", "youtube:player_client=ios,android,web;lang=tr")
                 addOption("--geo-bypass-country", "TR")
-                addOption("--sleep-requests", "0")
+                addOption("--sleep-requests", "1.0")
                 addOption("--sleep-subtitles", "1")
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
                 // Safe formatting: 50-char max title (50 chars * up to 4 bytes/char = 200 bytes) + unique video id keeps the full filename, incl. sidecar suffixes like [id].f137.mp4.part, under Android's 255-byte filename limit without slicing multi-byte UTF-8 chars
@@ -375,8 +375,8 @@ object YtDlpNativeManager {
                 
                 // 6. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
                 addOption("--limit-rate", dynamicRateLimit)
-                addOption("--sleep-interval", "0")
-                addOption("--max-sleep-interval", "0")
+                addOption("--sleep-interval", "1")
+                addOption("--max-sleep-interval", "3")
                 addOption("--retry-sleep", "1")
                 addOption("--retries", "10")
                 addOption("--fragment-retries", "10")

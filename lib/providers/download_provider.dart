@@ -439,6 +439,17 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         continue;
       }
 
+      final vid = VideoItem.extractVideoId(entry.url);
+      final isAlreadyInQueue = _manager.tasks.any((t) {
+        final tVid = VideoItem.extractVideoId(t.url);
+        return t.url == entry.url || (vid != null && tVid == vid);
+      });
+
+      if (isAlreadyInQueue) {
+        skippedCount++;
+        continue;
+      }
+
       runningTotalSec += effectiveDuration;
       _manager.tasks.add(DownloadTask(
         id: '${DateTime.now().millisecondsSinceEpoch}_$i',
@@ -597,6 +608,13 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           final vid = VideoItem.extractVideoId(videoUrl);
           title = vid != null ? 'Video ($vid)' : 'YouTube Videosu';
         }
+
+        final vid = VideoItem.extractVideoId(videoUrl);
+        final isAlreadyInQueueFinal = _manager.tasks.any((t) {
+          final tVid = VideoItem.extractVideoId(t.url);
+          return t.url == videoUrl || (vid != null && tVid == vid);
+        });
+        if (isAlreadyInQueueFinal) continue;
 
         runningTotalSec += duration;
         final taskId = '${DateTime.now().millisecondsSinceEpoch}_jit_0';

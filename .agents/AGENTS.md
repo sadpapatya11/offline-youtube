@@ -10,4 +10,4 @@
    - Bağlı telefona temiz yükle (`adb install -r -d build/app/outputs/flutter-apk/app-release.apk`),
    - GitHub reposunu (`git push origin main`) otomatik olarak güncelle.
 5. Kullanıcıya gereksiz sorular sorma ve onay isteme; tüm yetkiler peşin olarak verilmiştir. İstekleri ve sorunları doğrudan baştan sona analiz et, en iyi çözümü tasarla, uygula, test et, derle, telefona kur ve repoyu senkronize et.
-6. En küçük işlemlerde veya düzeltmelerde bile `pubspec.yaml` dosyasındaki sürüm/yapı (build) numarasını mutlaka 1 artır.
+6. En kucuk islemlerde veya duzeltmelerde bile `pubspec.yaml` dosyasindaki surumu minör olarak (ornegin 1.9.0'dan 2.0.0'a) artirirken, ayni zamanda yapi (build) numarasini da ardısık olarak 1 artir (orn: +34, +35). Kullanici hatirlatmadan bunu her zaman otomatik yap.

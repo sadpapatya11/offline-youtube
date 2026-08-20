@@ -323,8 +323,8 @@ object YtDlpNativeManager {
                 addOption("--no-warnings")
                 addOption("--no-cache-dir")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
-                addOption("--user-agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
-                addOption("--extractor-args", "youtube:player_client=ios,android,web;lang=tr")
+                addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+                addOption("--extractor-args", "youtube:lang=tr")
                 addOption("--geo-bypass-country", "TR")
                 addOption("--sleep-requests", "1.5")
                 addOption("--sleep-subtitles", "1")
@@ -412,8 +412,15 @@ object YtDlpNativeManager {
                         downloadedSize = parseDownloadedSize(line, totalSize)
                         val m = DOWNLOADED_PERCENT_PATTERN.matcher(line)
                         if (m.find()) {
-                            m.group(1).toFloatOrNull()?.let {
-                                currentProgress = it
+                            m.group(1).toFloatOrNull()?.let { parsedProgress ->
+                                // Prevent progress from jumping backwards when yt-dlp downloads audio after video
+                                if (parsedProgress >= currentProgress || (currentProgress - parsedProgress) < 50f) {
+                                    // Sadece küçük bir gerileme varsa veya ilerliyorsa güncelle (0'a düşmeyi engelle)
+                                    // Ancak tam 100'den 0'a ani düşüşü engelle (audio başlangıcı)
+                                    if (parsedProgress > currentProgress || currentProgress < 95f) {
+                                        currentProgress = maxOf(currentProgress, parsedProgress)
+                                    }
+                                }
                             }
                         }
                     }

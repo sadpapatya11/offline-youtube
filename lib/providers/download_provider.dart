@@ -343,7 +343,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     try {
       rawEntries = await NativeBridge.instance.fetchPlaylistEntries(url);
     } catch (e) {
-      print('resolvePlaylist native error: $e');
+      debugPrint('resolvePlaylist native error: $e');
       throw Exception('Liste çekilemedi: Hata oluştu veya desteklenmeyen format. Detay: $e');
     }
 
@@ -443,7 +443,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       _manager.tasks.add(DownloadTask(
         id: '${DateTime.now().millisecondsSinceEpoch}_$i',
         url: entry.url,
-        title: 'Bilgiler alınıyor...',
+        title: entry.title,
+        durationSeconds: entry.durationSeconds,
+        thumbnail: entry.thumbnail,
+        uploader: entry.uploader,
         status: DownloadStatus.queued,
         sourcePlaylistUrl: sourcePlaylistUrl,
       ));

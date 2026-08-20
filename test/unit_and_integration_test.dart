@@ -19,13 +19,13 @@ void main() {
       const settings = AppSettings();
       expect(settings.maxStorageLimitGB, 20);
       expect(settings.maxVideoDurationHours, 6);
-      expect(settings.networkMode, NetworkRestrictionMode.allNetworks);
+      expect(settings.networkMode, NetworkRestrictionMode.anyWifi);
 
       final json = settings.toJson();
       final fromJson = AppSettings.fromJson(json);
       expect(fromJson.maxStorageLimitGB, 20);
       expect(fromJson.maxVideoDurationHours, 6);
-      expect(fromJson.networkMode, NetworkRestrictionMode.allNetworks);
+      expect(fromJson.networkMode, NetworkRestrictionMode.anyWifi);
 
       final modified = settings.copyWith(
         maxStorageLimitGB: 50,

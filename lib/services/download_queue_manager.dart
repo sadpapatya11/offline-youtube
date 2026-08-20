@@ -163,20 +163,10 @@ class DownloadQueueManager {
         bool needsUpdate = false;
         final now = DateTime.now();
         for (final t in downloadingTasks) {
-          if (t.lastProgressTime != null) {
-            final diff = now.difference(t.lastProgressTime!).inSeconds;
-            // FFmpeg ile video/ses birleştirmesi veya yavaş ağlar için zaman aşımını 300s yaptık.
-            if (diff > 300) {
-              t.status = DownloadStatus.error;
-              t.hadPreviousError = true;
-              t.errorMessage = 'İndirme zaman aşımına uğradı (5 dk işlem yapılmadı).';
-              if (activeTaskId == t.id) activeTaskId = null;
-              needsUpdate = true;
-            }
-          } else {
-            // If lastProgressTime is somehow null but it's downloading, set it to now so it gets caught next time,
-            // or just kill it if we consider it an error state.
+          if (t.lastProgressTime == null) {
+            // If lastProgressTime is somehow null but it's downloading, set it to now.
             t.lastProgressTime = now;
+            needsUpdate = true;
           }
         }
         if (needsUpdate) {

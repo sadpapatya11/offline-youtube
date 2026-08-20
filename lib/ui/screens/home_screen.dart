@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../utils/snackbar_helper.dart';
-import '../../models/playlist_entry.dart';
-import 'playlist_selection_screen.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/settings_provider.dart';

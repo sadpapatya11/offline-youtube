@@ -14,14 +14,14 @@ void main() {
     test('1. App Settings & 2-Mode Network Restriction Validation', () async {
       // Default settings check
       const defaultSettings = AppSettings();
-      expect(defaultSettings.networkMode, NetworkRestrictionMode.allNetworks);
+      expect(defaultSettings.networkMode, NetworkRestrictionMode.anyWifi);
       expect(defaultSettings.maxStorageLimitGB, 20);
       expect(defaultSettings.maxVideoDurationHours, 6);
       expect(defaultSettings.playlistReverseOrder, isTrue);
 
       // Verify network permission with allNetworks (should always allow)
       final netCheckAll = await NetworkManager.instance
-          .checkNetworkPermissionAndStatus(defaultSettings);
+          .checkNetworkPermissionAndStatus(defaultSettings.copyWith(networkMode: NetworkRestrictionMode.allNetworks));
       expect(netCheckAll['allowed'], isTrue);
 
       // Verify copyWith works properly for WiFi mode

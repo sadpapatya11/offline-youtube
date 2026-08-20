@@ -353,12 +353,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       return PlaylistFetchResult(entries: const [], totalCount: 0, sourceUrl: url);
     }
 
-    // Kullanıcı eğer "En yeni videoları önce indir" ayarını açtıysa tersine çeviriyoruz.
-    // Ancak kullanıcı YouTube üzerinden listeyi zaten "En yeni" olarak sıraladıysa, 
-    // bu ayarı kapatması gerekir. Aksi takdirde en yeniler en sona gider.
-    bool shouldReverse = settings.playlistReverseOrder;
-    
-    final ordered = shouldReverse ? rawEntries.reversed.toList() : rawEntries;
+    final ordered = rawEntries;
     final totalCount = ordered.length;
     final limited = totalCount > maxPlaylistEntries ? ordered.sublist(0, maxPlaylistEntries) : ordered;
 
@@ -405,6 +400,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     final inLibrary = downloadedVideos.any(
       (v) => v.sourceUrl == videoUrl || (vid != null && v.youtubeId == vid),
     );
+
+    if (inQueue || inLibrary) return null;
 
     return PlaylistEntry(
       url: videoUrl,
@@ -553,7 +550,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       final maxDurationSec = settings.maxVideoDurationHours * 3600;
       final refreshedDownloads = await StorageManager.instance.scanDownloadedVideos();
       int runningTotalSec = refreshedDownloads.fold<int>(0, (sum, v) => sum + (v.durationSeconds ?? 0));
-      final effectiveNewEntries = settings.playlistReverseOrder ? orderedNewEntries.reversed.toList() : orderedNewEntries;
+      final effectiveNewEntries = orderedNewEntries;
 
       for (final entry in effectiveNewEntries) {
         final videoUrl = (entry['url'] as String? ?? '').trim();

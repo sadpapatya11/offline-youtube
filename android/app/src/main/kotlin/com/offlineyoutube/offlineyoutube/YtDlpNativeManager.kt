@@ -119,7 +119,7 @@ object YtDlpNativeManager {
                 addOption(
                     "--extractor-args",
                     if (isPlaylist) "youtube:lang=tr"
-                    else "youtube:player_client=ios,android,web;lang=tr"
+                    else "youtube:player_client=tv,ios,web_safari,web;lang=tr;player_skip=webpage,configs"
                 )
                 addOption("--geo-bypass-country", "TR")
                 addOption("--sleep-requests", "1.5")
@@ -167,7 +167,6 @@ object YtDlpNativeManager {
                 addOption("--geo-bypass-country", "TR")
                 addOption("--sleep-requests", "1.0")
                 addOption("--flat-playlist")
-                addOption("--playlist-reverse")
                 addOption("-J")
                 appContext?.let { ctx ->
                     cookieFile = CookieHelper.saveCookies(ctx)
@@ -325,7 +324,7 @@ object YtDlpNativeManager {
                 addOption("--no-cache-dir")
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
                 addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
-                addOption("--extractor-args", "youtube:lang=tr")
+                addOption("--extractor-args", "youtube:player_client=tv,ios,web_safari,web;lang=tr;player_skip=webpage,configs")
                 addOption("--geo-bypass-country", "TR")
                 addOption("--sleep-requests", "1.5")
                 addOption("--sleep-subtitles", "1")

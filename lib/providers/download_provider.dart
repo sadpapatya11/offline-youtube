@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
+import '../services/youtube_api_service.dart';
 import '../models/app_settings.dart';
 import '../models/download_task.dart';
 import '../models/video_item.dart';
@@ -475,7 +476,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     required LibraryProvider libraryProvider,
   }) async {
     if (_isSyncingPlaylists) return const PlaylistSyncResult(success: false, message: 'Senkronizasyon zaten devam ediyor');
-    if (settings.savedPlaylists.isEmpty) return const PlaylistSyncResult(success: false, message: 'Kayıtlı oynatma listesi bulunamadı');
+    if (settings.savedPlaylists.isEmpty) return const PlaylistSyncResult(success: false, message: 'Kayitli oynatma listesi bulunamadi');
 
     _isSyncingPlaylists = true;
     notifyListeners();
@@ -495,6 +496,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       for (final playlistUrl in settings.savedPlaylists) {
         if (playlistUrl.trim().isEmpty) continue;
         try {
+          final pid = Uri.tryParse(playlistUrl)?.queryParameters['list'];
+          Map<String, DateTime>? apiDates;
+          if (pid != null) {
+            apiDates = await YoutubeApiService().fetchPlaylistVideos(pid);
+          }
+
           final entries = await NativeBridge.instance.fetchPlaylistEntries(playlistUrl);
           if (entries.isNotEmpty) anyPlaylistSucceeded = true;
           for (final entry in entries) {
@@ -515,7 +522,11 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
             });
 
             if (!isAlreadyDownloaded && !isAlreadyInQueue && !isAlreadyInBatch) {
-              orderedNewEntries.add({...entry, '_sourcePlaylistUrl': playlistUrl});
+              final newEntry = {...entry, '_sourcePlaylistUrl': playlistUrl};
+              if (apiDates != null && vid.isNotEmpty && apiDates.containsKey(vid)) {
+                newEntry['uploadDate'] = apiDates[vid]!.toIso8601String();
+              }
+              orderedNewEntries.add(newEntry);
             }
           }
         } catch (_) {}
@@ -547,12 +558,32 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
 
+      // Metadata Fallback for missing uploadDate
+      for (var i = 0; i < orderedNewEntries.length; i++) {
+         final d = orderedNewEntries[i]['uploadDate']?.toString() ?? '';
+         if (d.isEmpty) {
+             final u = (orderedNewEntries[i]['url'] as String? ?? '').trim();
+             if (u.isNotEmpty) {
+                 try {
+                     final meta = await NativeBridge.instance.fetchMetadata(u);
+                     orderedNewEntries[i]['uploadDate'] = meta['uploadDate'];
+                 } catch(_) {}
+             }
+         }
+      }
+
+      orderedNewEntries.sort((a, b) {
+          final da = (a['uploadDate']?.toString() ?? '').replaceAll('-', '');
+          final db = (b['uploadDate']?.toString() ?? '').replaceAll('-', '');
+          if (da.isNotEmpty && db.isNotEmpty) return db.compareTo(da);
+          return 0;
+      });
+
       final maxDurationSec = settings.maxVideoDurationHours * 3600;
       final refreshedDownloads = await StorageManager.instance.scanDownloadedVideos();
       int runningTotalSec = refreshedDownloads.fold<int>(0, (sum, v) => sum + (v.durationSeconds ?? 0));
-      final effectiveNewEntries = orderedNewEntries;
 
-      for (final entry in effectiveNewEntries) {
+      for (final entry in orderedNewEntries) {
         final videoUrl = (entry['url'] as String? ?? '').trim();
         var title = (entry['title'] as String? ?? '').trim();
         final duration = (entry['duration'] as num?)?.toInt() ?? 0;
@@ -560,19 +591,12 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         var uploader = (entry['uploader'] as String? ?? '').trim();
 
         if (videoUrl.isEmpty || videoUrl.toLowerCase() == 'null') continue;
-        final lowerTitle = title.toLowerCase();
-        if (lowerTitle.contains('[deleted') || lowerTitle.contains('[private') || lowerTitle.contains('[unavailable')) continue;
+        if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) continue;
 
-        if (title.isEmpty || lowerTitle == 'null' || lowerTitle == 'null null') {
+        if (title.isEmpty || title.toLowerCase() == 'null') {
           final vid = VideoItem.extractVideoId(videoUrl);
           title = vid != null ? 'Video ($vid)' : 'YouTube Videosu';
         }
-        if (thumbnail.isEmpty || thumbnail.toLowerCase() == 'null') {
-          final vid = VideoItem.extractVideoId(videoUrl);
-          thumbnail = vid != null ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg' : '';
-        }
-        if (uploader.toLowerCase() == 'null') uploader = '';
-        if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) continue;
 
         runningTotalSec += duration;
         final taskId = '${DateTime.now().millisecondsSinceEpoch}_jit_0';
@@ -581,16 +605,17 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           id: taskId,
           url: videoUrl,
           title: title,
-          thumbnail: thumbnail.isNotEmpty ? thumbnail : null,
+          thumbnail: thumbnail.isNotEmpty && thumbnail.toLowerCase() != 'null' ? thumbnail : null,
           durationSeconds: duration,
-          uploader: uploader.isNotEmpty ? uploader : null,
+          uploader: uploader.isNotEmpty && uploader.toLowerCase() != 'null' ? uploader : null,
+          uploadDate: entry['uploadDate']?.toString(),
           status: DownloadStatus.queued,
           sourcePlaylistUrl: entrySourcePlaylist.isNotEmpty ? entrySourcePlaylist : null,
         );
 
         _manager.tasks.insert(0, newTask);
         addedCount++;
-        break;
+        break; // YALNIZCA TEK YENI VIDEO EKLENIR
       }
 
       await _manager.saveTasksToStorage();

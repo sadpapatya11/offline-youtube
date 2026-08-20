@@ -122,7 +122,7 @@ object YtDlpNativeManager {
                     else "youtube:player_client=tv,ios,web_safari,web;lang=tr;player_skip=webpage,configs"
                 )
                 addOption("--geo-bypass-country", "TR")
-                addOption("--sleep-requests", "1.5")
+                addOption("--sleep-requests", "0")
                 if (isPlaylist) {
                     addOption("--flat-playlist")
                 } else {
@@ -326,7 +326,7 @@ object YtDlpNativeManager {
                 addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
                 addOption("--extractor-args", "youtube:player_client=tv,ios,web_safari,web;lang=tr;player_skip=webpage,configs")
                 addOption("--geo-bypass-country", "TR")
-                addOption("--sleep-requests", "1.5")
+                addOption("--sleep-requests", "0")
                 addOption("--sleep-subtitles", "1")
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
                 // Safe formatting: 50-char max title (50 chars * up to 4 bytes/char = 200 bytes) + unique video id keeps the full filename, incl. sidecar suffixes like [id].f137.mp4.part, under Android's 255-byte filename limit without slicing multi-byte UTF-8 chars
@@ -375,9 +375,9 @@ object YtDlpNativeManager {
                 
                 // 6. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
                 addOption("--limit-rate", dynamicRateLimit)
-                addOption("--sleep-interval", "1")
-                addOption("--max-sleep-interval", "3")
-                addOption("--retry-sleep", "3")
+                addOption("--sleep-interval", "0")
+                addOption("--max-sleep-interval", "0")
+                addOption("--retry-sleep", "1")
                 addOption("--retries", "10")
                 addOption("--fragment-retries", "10")
             }

@@ -49,10 +49,54 @@ class YoutubeApiService {
     try {
       _currentUser = await _googleSignIn.signIn();
       return _currentUser;
-    } catch (error) {
-      debugPrint('Google Sign-In Error: $error');
-      // Common error 10 means DEVELOPER_ERROR (misconfigured SHA-1 or package name in GCP)
+    } catch (e) {
+      debugPrint('Google SignIn Error: $e');
       return null;
+    }
+  }
+
+  Future<Map<String, DateTime>?> fetchPlaylistVideos(String playlistId) async {
+    final account = _currentUser;
+    if (account == null) return null;
+
+    final headers = await account.authHeaders;
+    final client = _GoogleAuthClient(headers);
+    final api = yt.YouTubeApi(client);
+
+    try {
+      String? nextPageToken;
+      final List<String> videoIds = [];
+      do {
+        final resp = await api.playlistItems.list(
+            ['contentDetails'],
+            playlistId: playlistId,
+            maxResults: 50,
+            pageToken: nextPageToken
+        );
+        for (var item in resp.items ?? []) {
+          if (item.contentDetails?.videoId != null) {
+            videoIds.add(item.contentDetails!.videoId!);
+          }
+        }
+        nextPageToken = resp.nextPageToken;
+      } while (nextPageToken != null);
+
+      final Map<String, DateTime> publishedByVideoId = {};
+      for (int i = 0; i < videoIds.length; i += 50) {
+        final chunk = videoIds.sublist(i, min(i + 50, videoIds.length));
+        final vidResp = await api.videos.list(['snippet'], id: chunk, maxResults: 50);
+        for (final v in vidResp.items ?? []) {
+          final ts = v.snippet?.publishedAt;
+          if (v.id != null && ts != null) publishedByVideoId[v.id!] = ts;
+        }
+      }
+
+      return publishedByVideoId;
+    } catch (e) {
+      debugPrint('fetchPlaylistVideos error: $e');
+      return null;
+    } finally {
+      client.close();
     }
   }
 

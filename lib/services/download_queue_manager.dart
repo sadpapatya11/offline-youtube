@@ -182,7 +182,7 @@ class DownloadQueueManager {
     _eventSubscription = NativeBridge.instance.downloadEvents.listen(
       (event) async {
         final data = Map<String, dynamic>.from(event);
-        final status = data['status'] as String?;
+        final status = data['type'] as String?;
         final taskId = data['taskId'] as String?;
 
         if (status == null || taskId == null) return;
@@ -202,10 +202,16 @@ class DownloadQueueManager {
           case 'progress':
             task.status = DownloadStatus.downloading;
             task.progress = (data['progress'] as num?)?.toDouble() ?? 0.0;
-            task.speed = data['speed'] as String? ?? '';
-            final etaStr = data['eta'] as String?;
-            if (etaStr != null && etaStr.contains(':')) {
-              final parts = etaStr.split(':');
+            task.speed = data['speed']?.toString() ?? '';
+            
+            task.totalSize = data['totalSize']?.toString();
+            task.downloadedSize = data['downloadedSize']?.toString();
+            
+            final etaVal = data['eta'];
+            if (etaVal is num) {
+              task.etaSeconds = etaVal.toInt();
+            } else if (etaVal is String && etaVal.contains(':')) {
+              final parts = etaVal.split(':');
               try {
                 if (parts.length == 2) {
                   task.etaSeconds = (int.tryParse(parts[0]) ?? 0) * 60 + (int.tryParse(parts[1]) ?? 0);

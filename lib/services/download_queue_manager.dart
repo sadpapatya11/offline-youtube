@@ -198,7 +198,8 @@ class DownloadQueueManager {
         final task = tasks[taskIndex];
 
         switch (status) {
-          case 'downloading':
+          case 'started':
+          case 'progress':
             task.status = DownloadStatus.downloading;
             task.progress = (data['progress'] as num?)?.toDouble() ?? 0.0;
             task.speed = data['speed'] as String? ?? '';

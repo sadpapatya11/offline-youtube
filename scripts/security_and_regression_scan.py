@@ -255,6 +255,13 @@ def main():
     if not test_ok:
         sys.exit(1)
         
+    # 2.5 Canli Cihaz Uzeri E2E/Network Testleri (YT-DLP / BotGuard)
+    print(f"\n{Colors.OKBLUE}[*] Canli cihaz/emulator uzerinde Uctan Uca (E2E) Ag Testleri Baslatiliyor...{Colors.ENDC}")
+    e2e_ok, _ = run_command("flutter test integration_test/app_test.dart", "Flutter E2E Runtime Network Testi")
+    if not e2e_ok:
+        print(f"{Colors.FAIL}[-] E2E Testi Basarisiz! YT-DLP baglantisi kopmus (Runtime/Network hatasi).{Colors.ENDC}")
+        sys.exit(1)
+        
     # 3. AndroidManifest Analizi
     manifest_ok = scan_manifest()
     

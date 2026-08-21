@@ -325,6 +325,8 @@ object YtDlpNativeManager {
                 addOption("--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
                 addOption("--extractor-args", "youtube:lang=tr")
                 addOption("--geo-bypass-country", "TR")
+                addOption("--force-ipv4") // Prevents hanging on IPv6 networks
+                addOption("--socket-timeout", "15") // Fail fast instead of hanging
                 addOption("--sleep-requests", "1.0")
                 addOption("--sleep-subtitles", "1")
                 addOption("--write-thumbnail") // Sidecar image file only (zero video transcoding)
@@ -388,6 +390,11 @@ object YtDlpNativeManager {
                 request,
                 taskId
             ) { callbackProgress, etaInSeconds, line ->
+                // Debug the raw stdout to see what yt-dlp is actually doing or if it's hung
+                if (line != null) {
+                    Log.d(TAG, "stdout: $line")
+                }
+                
                 val now = System.currentTimeMillis()
                 
                 var currentProgress = callbackProgress

@@ -81,6 +81,11 @@ class LibraryProvider extends ChangeNotifier {
   Future<bool> deleteVideo(VideoItem item) async {
     final success = await StorageManager.instance.moveToTrash(item);
     if (success) {
+      // Geri dnǬYǬme (pe) atldY anda YouTube Oynatma Listesinden de sil!
+      if (item.playlistUrl != null && item.youtubeId != null) {
+        YoutubeApiService().enqueueDeletion(item.playlistUrl, item.youtubeId);
+      }
+      
       _videos.removeWhere((v) => v.id == item.id);
       _trashedVideos = await StorageManager.instance.loadTrashIndex();
       _totalUsedBytes = await StorageManager.instance.getUsedStorageBytes();
@@ -106,6 +111,9 @@ class LibraryProvider extends ChangeNotifier {
       if (match != null) {
         final ok = await StorageManager.instance.moveToTrash(match);
         if (ok) {
+          if (match.playlistUrl != null && match.youtubeId != null) {
+            YoutubeApiService().enqueueDeletion(match.playlistUrl, match.youtubeId);
+          }
           _videos.removeWhere((v) => v.id == id);
           deletedCount++;
         }

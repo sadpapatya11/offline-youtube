@@ -124,10 +124,15 @@ object YtDlpNativeManager {
                 addOption("--force-ipv4")
                 addOption("--socket-timeout", "15")
                 addOption("--sleep-requests", "1.0")
+                
                 if (isPlaylist) {
                     addOption("--flat-playlist")
                 } else {
                     addOption("--no-playlist")
+                    // FIX(size): Metadatann (rn: 76 MB) gerek indirme boyutuyla (rn: 1.95 GB) eYleYmesi iin 
+                    // indirme srasnda kullandmz yǬksek kalite format deYerini bilgi ekerken de zorluyoruz.
+                    addOption("-f", "bestvideo+bestaudio/best")
+                    addOption("-S", "res,vcodec:av1,vcodec:vp9,vcodec:h264")
                 }
                 addOption("--dump-single-json")
             }

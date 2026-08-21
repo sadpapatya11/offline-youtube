@@ -110,10 +110,10 @@ object ThermalManager {
         val battTemp = getBatteryTemperatureCelsius()
 
         return when {
-            thermal >= THERMAL_STATUS_CRITICAL || battTemp >= 45.0f -> "500K"
-            thermal >= THERMAL_STATUS_SEVERE || battTemp >= 42.0f -> "1.0M"
-            thermal >= THERMAL_STATUS_MODERATE || battTemp >= 38.5f || !isScreenOn.get() -> "2.0M"
-            else -> "3.5M"
+            thermal >= THERMAL_STATUS_CRITICAL || battTemp >= 45.0f -> "1.5M"
+            thermal >= THERMAL_STATUS_SEVERE || battTemp >= 42.0f -> "4.0M"
+            thermal >= THERMAL_STATUS_MODERATE || battTemp >= 38.5f || !isScreenOn.get() -> "8.0M"
+            else -> "15.0M" // ~120 Mbps, mimics fast 4K video buffering, avoids BotGuard IP bans
         }
     }
 

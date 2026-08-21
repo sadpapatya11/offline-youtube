@@ -40,7 +40,7 @@ class MainActivity : FlutterActivity() {
                     eventSink = events
                     DownloadForegroundService.eventCallback = { data ->
                         runOnUiThread {
-                            eventSink?.success(data)
+                            eventSink?.success(org.json.JSONObject(data).toString())
                         }
                     }
                 }

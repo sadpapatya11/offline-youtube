@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/services.dart';
 
 class NativeBridge {
@@ -15,7 +16,12 @@ class NativeBridge {
   Stream<Map<dynamic, dynamic>> get downloadEvents {
     _downloadEventStream ??= _eventChannel
         .receiveBroadcastStream()
-        .map((event) => Map<dynamic, dynamic>.from(event as Map));
+        .map((event) {
+          if (event is String) {
+            return jsonDecode(event) as Map<dynamic, dynamic>;
+          }
+          return Map<dynamic, dynamic>.from(event as Map);
+        });
     return _downloadEventStream!;
   }
 

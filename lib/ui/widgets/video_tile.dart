@@ -157,67 +157,63 @@ class VideoTile extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
 
-                // Kanal (varsa)
-                if (hasUploader) ...[
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.account_circle_outlined,
-                        size: 12,
-                        color: AmoledTheme.subText,
-                      ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          video.uploader!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: AmoledTheme.subText,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                          ),
+                // Kanal (Standart hale getirildi, her zaman çizilir)
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.account_circle_outlined,
+                      size: 12,
+                      color: AmoledTheme.subText,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        hasUploader ? video.uploader! : 'Bilinmeyen Kanal',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: AmoledTheme.subText,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 5),
-                ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
 
                 // Alt bilgi satırı: süre • boyut • tarih
                 Row(
                   children: [
-                    // Süre (varsa)
-                    if (hasDuration) ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF1A1A1A),
-                          borderRadius: BorderRadius.circular(5),
-                          border: Border.all(
-                              color: Colors.white12, width: 0.8),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.access_time_rounded,
-                                size: 10, color: AmoledTheme.subText),
-                            const SizedBox(width: 3),
-                            Text(
-                              video.formattedDuration,
-                              style: const TextStyle(
-                                color: AmoledTheme.pureWhite,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                          ],
-                        ),
+                    // Süre (Standart hale getirildi, her zaman çizilir)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1A1A1A),
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(
+                            color: Colors.white12, width: 0.8),
                       ),
-                      const SizedBox(width: 6),
-                    ],
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.access_time_rounded,
+                              size: 10, color: AmoledTheme.subText),
+                          const SizedBox(width: 3),
+                          Text(
+                            hasDuration ? video.formattedDuration : '--:--',
+                            style: const TextStyle(
+                              color: AmoledTheme.pureWhite,
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
 
                     // Boyut
                     Container(
@@ -262,69 +258,64 @@ class VideoTile extends StatelessWidget {
                   ],
                 ),
                 
-                // YouTube Linki
-                if (video.sourceUrl != null && video.sourceUrl!.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  InkWell(
-                    onTap: () async {
-                      final url = Uri.parse(video.sourceUrl!);
-                      try {
-                        bool launched = false;
-                        // YouTube uygulamasına doğrudan açmayı dene
-                        if (video.youtubeId != null && video.youtubeId!.isNotEmpty) {
-                          final ytAppUri = Uri.parse('vnd.youtube:${video.youtubeId}');
-                          launched = await launchUrl(ytAppUri, mode: LaunchMode.externalApplication);
+                // YouTube Linki (Standart)
+                const SizedBox(height: 6),
+                InkWell(
+                  onTap: (video.sourceUrl != null && video.sourceUrl!.isNotEmpty)
+                      ? () async {
+                          final url = Uri.parse(video.sourceUrl!);
+                          try {
+                            bool launched = false;
+                            if (video.youtubeId != null && video.youtubeId!.isNotEmpty) {
+                              final ytAppUri = Uri.parse('vnd.youtube:${video.youtubeId}');
+                              launched = await launchUrl(ytAppUri, mode: LaunchMode.externalApplication);
+                            }
+                            if (!launched) {
+                              launched = await launchUrl(url, mode: LaunchMode.externalNonBrowserApplication);
+                            }
+                            if (!launched) {
+                              await launchUrl(url, mode: LaunchMode.externalApplication);
+                            }
+                          } catch (_) {
+                            await launchUrl(url, mode: LaunchMode.externalApplication);
+                          }
                         }
-
-                        if (!launched) {
-                          // Önce YouTube uygulamasında açmayı dene (Android 11+ queries ile)
-                          launched = await launchUrl(
-                            url,
-                            mode: LaunchMode.externalNonBrowserApplication,
-                          );
-                        }
-                        
-                        if (!launched) {
-                          // YouTube uygulaması yoksa sistem varsayılanıyla (tarayıcı vs) aç
-                          await launchUrl(
-                            url,
-                            mode: LaunchMode.externalApplication,
-                          );
-                        }
-                      } catch (_) {
-                        // Son çare: platformun varsayılan davranışı
-                        await launchUrl(
-                          url,
-                          mode: LaunchMode.externalApplication,
-                        );
-                      }
-                    },
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.link_rounded,
-                          size: 12,
-                          color: AmoledTheme.brandRed,
-                        ),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            video.sourceUrl!,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: AmoledTheme.brandRed,
-                              fontSize: 10.5,
-                              decoration: TextDecoration.underline,
-                              decorationColor: AmoledTheme.brandRed,
-                            ),
+                      : null,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        (video.sourceUrl != null && video.sourceUrl!.isNotEmpty)
+                            ? Icons.link_rounded
+                            : Icons.link_off_rounded,
+                        size: 12,
+                        color: (video.sourceUrl != null && video.sourceUrl!.isNotEmpty)
+                            ? AmoledTheme.brandRed
+                            : AmoledTheme.subText,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          (video.sourceUrl != null && video.sourceUrl!.isNotEmpty)
+                              ? video.sourceUrl!
+                              : 'Bağlantı Yok',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: (video.sourceUrl != null && video.sourceUrl!.isNotEmpty)
+                                ? AmoledTheme.brandRed
+                                : AmoledTheme.subText,
+                            fontSize: 10.5,
+                            decoration: (video.sourceUrl != null && video.sourceUrl!.isNotEmpty)
+                                ? TextDecoration.underline
+                                : TextDecoration.none,
+                            decorationColor: AmoledTheme.brandRed,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ],
             ),
           ),

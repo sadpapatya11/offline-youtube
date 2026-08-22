@@ -633,7 +633,6 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
         _manager.tasks.insert(0, newTask);
         addedCount++;
-        break; // YALNIZCA TEK YENI VIDEO EKLENIR
       }
 
       await _manager.saveTasksToStorage();

@@ -59,7 +59,7 @@ class BackgroundSyncManager {
       await Workmanager().registerPeriodicTask(
         _taskUniqueName,
         _taskName,
-        frequency: const Duration(hours: 24),
+        frequency: const Duration(minutes: 15),
         constraints: Constraints(
           networkType: isWifiOnly ? NetworkType.unmetered : NetworkType.connected,
           requiresStorageNotLow: true,

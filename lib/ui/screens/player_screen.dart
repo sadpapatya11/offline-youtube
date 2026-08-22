@@ -73,9 +73,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _resetControlsTimer() {
     _controlsTimer?.cancel();
-    if (_showControls && _controller?.value.isPlaying == true) {
+    if (_showControls) {
       _controlsTimer = Timer(const Duration(milliseconds: 1500), () {
-        if (mounted && _controller?.value.isPlaying == true) {
+        if (mounted) {
           setState(() {
             _showControls = false;
           });
@@ -887,12 +887,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   setState(() {
                                     if (c.value.isPlaying) {
                                       c.pause();
-                                      _controlsTimer?.cancel();
-                                      _showControls = true;
                                     } else {
                                       c.play();
-                                      _resetControlsTimer();
                                     }
+                                    _resetControlsTimer();
                                   });
                                 },
                               ),

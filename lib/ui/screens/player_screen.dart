@@ -69,6 +69,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // Çift Dokunma İleri/Geri Bildirimi
   String? _seekFeedbackText;
   Timer? _seekFeedbackTimer;
+  Timer? _controlsTimer;
+
+  void _resetControlsTimer() {
+    _controlsTimer?.cancel();
+    if (_showControls && _controller?.value.isPlaying == true) {
+      _controlsTimer = Timer(const Duration(milliseconds: 1500), () {
+        if (mounted && _controller?.value.isPlaying == true) {
+          setState(() {
+            _showControls = false;
+          });
+        }
+      });
+    }
+  }
+
+  void _toggleControls() {
+    setState(() {
+      _showControls = !_showControls;
+    });
+    _resetControlsTimer();
+  }
 
   VideoItem get currentVideo =>
       (_playlist.isNotEmpty && _currentIndex < _playlist.length)
@@ -175,6 +196,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       await WakelockPlus.enable();
 
       await _loadSubtitlesFor(vid);
+      
+      _resetControlsTimer();
     } catch (e) {
       // FIX(leak): Controller oluşturuldu ama _controller'a atanamadan hata
       // oluştuysa burada dispose et (ör. initialize() fırlattı).
@@ -676,11 +699,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               child: GestureDetector(
                                 behavior: HitTestBehavior.translucent,
                                 onDoubleTap: () => _seekRelative(-10),
-                                onTap: () {
-                                  setState(() {
-                                    _showControls = !_showControls;
-                                  });
-                                },
+                                onTap: _toggleControls,
                                 onLongPressStart: (_) {
                                   setState(() {
                                     _isHolding2X = true;
@@ -700,11 +719,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               child: GestureDetector(
                                 behavior: HitTestBehavior.translucent,
                                 onDoubleTap: () => _seekRelative(10),
-                                onTap: () {
-                                  setState(() {
-                                    _showControls = !_showControls;
-                                  });
-                                },
+                                onTap: _toggleControls,
                                 onLongPressStart: (_) {
                                   setState(() {
                                     _isHolding2X = true;
@@ -870,9 +885,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 ),
                                 onPressed: () {
                                   setState(() {
-                                    c.value.isPlaying
-                                        ? c.pause()
-                                        : c.play();
+                                    if (c.value.isPlaying) {
+                                      c.pause();
+                                      _controlsTimer?.cancel();
+                                      _showControls = true;
+                                    } else {
+                                      c.play();
+                                      _resetControlsTimer();
+                                    }
                                   });
                                 },
                               ),
@@ -961,6 +981,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       onChanged: (val) {
                                         c.seekTo(Duration(
                                             milliseconds: val.toInt()));
+                                        _resetControlsTimer();
+                                      },
+                                      onChangeStart: (_) {
+                                        _controlsTimer?.cancel();
+                                      },
+                                      onChangeEnd: (_) {
+                                        _resetControlsTimer();
                                       },
                                     ),
                                   ),

@@ -105,7 +105,10 @@ dependencies {
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:aria2c:0.18.1")
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // androidx.security:security-crypto KALDIRILDI: yalnız CookieHelper içindeki iki
+    // ölü import için duruyordu, tek bir kullanımı yoktu. yt-dlp çerez dosyasını
+    // --cookies ile kendisi okuduğu için şifreli kap zaten kullanılamaz. Alpha sürümlü
+    // bir kripto kütüphanesini üretim APK'sına taşımanın karşılığı yoktu.
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 }

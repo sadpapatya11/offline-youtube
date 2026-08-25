@@ -290,6 +290,45 @@ class DownloadForegroundService : Service() {
         }
     }
 
+    /**
+     * Android 14 (API 34) ve sonrasında sistem, foreground servis çalışma kotası
+     * dolduğunda bu geri çağrıyı tetikler. Android 15'te `dataSync` tipi servisler
+     * 24 saatlik pencerede toplam 6 saatle sınırlıdır.
+     *
+     * Bu metot override EDİLMEZSE servis birkaç saniye içinde
+     * `ForegroundServiceDidNotStopInTimeException` ile ÇÖKER. Uzun bir oynatma listesi
+     * indirilirken bu, uygulamanın kullanıcı gözünde sebepsizce kapanması demektir.
+     *
+     * Doğru davranış: çökmeyi beklemeden aktif indirmeleri düzgünce durdurmak ve
+     * görevleri `paused` olarak işaretlemek. Böylece kuyruk kaybolmaz, kullanıcı
+     * uygulamayı tekrar açtığında kaldığı yerden devam edebilir.
+     */
+    override fun onTimeout(startId: Int) {
+        handleForegroundServiceTimeout("startId=$startId")
+    }
+
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        handleForegroundServiceTimeout("startId=$startId, fgsType=$fgsType")
+    }
+
+    private fun handleForegroundServiceTimeout(detay: String) {
+        Log.w(TAG, "Foreground servis zaman aşımı ($detay); indirmeler duraklatılıyor")
+
+        // Görevleri paused olarak bildir: Dart tarafı durumu kalıcılaştırır ve
+        // kullanıcı uygulamayı açtığında kuyruk kaldığı yerden sürebilir.
+        for (taskId in activeDownloadJobs.keys.toList()) {
+            emitEvent(
+                mapOf(
+                    "taskId" to taskId,
+                    "type" to "paused",
+                    "error" to "Sistem arka plan çalışma sınırına ulaşıldı, indirme duraklatıldı."
+                )
+            )
+        }
+
+        stopAllAndSelf()
+    }
+
     private fun stopAllAndSelf() {
         idleTimeoutJob?.cancel()
         idleTimeoutJob = null

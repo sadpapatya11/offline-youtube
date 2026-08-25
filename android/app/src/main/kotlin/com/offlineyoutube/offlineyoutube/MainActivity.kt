@@ -30,6 +30,11 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
+        // Önceki koşudan (süreç öldürülmesi veya çökme) kalan çerez dosyalarını temizle.
+        // Bu dosyalar tam Google oturum çerezlerini düz metin taşır; normal akışta
+        // indirme sonrası silinirler ama süreç öldürülürse geride kalırlar.
+        CookieHelper.clearStaleCookieFiles(applicationContext)
+
         // Initialize YoutubeDL
         YtDlpNativeManager.init(this)
 

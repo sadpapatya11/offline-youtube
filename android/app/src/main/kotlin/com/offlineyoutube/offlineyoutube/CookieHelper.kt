@@ -3,25 +3,43 @@ package com.offlineyoutube.offlineyoutube
 import android.content.Context
 import android.webkit.CookieManager
 import android.util.Log
-import androidx.security.crypto.EncryptedFile
-import androidx.security.crypto.MasterKey
 import java.io.File
 import java.io.BufferedWriter
 import java.io.OutputStreamWriter
 
+/**
+ * yt-dlp'ye verilecek Netscape biçimli çerez dosyasını üretir.
+ *
+ * Dosya ZORUNLU olarak düz metindir: yt-dlp `--cookies` seçeneğiyle dosyayı kendisi
+ * okur, yani şifreli bir kap kullanılamaz. Bu yüzden önceki sürümdeki
+ * `androidx.security.crypto.EncryptedFile` ve `MasterKey` import'ları hiçbir zaman
+ * kullanılmıyordu ve yanlış bir güvenlik hissi veriyordu; ikisi de kaldırıldı.
+ *
+ * Bunun yerine gerçek koruma iki şeye dayanır:
+ *  1. Dosya uygulamaya özel [Context.getCacheDir] altında tutulur (0700) ve manifest'te
+ *     `allowBackup="false"` olduğu için yedeğe girmez.
+ *  2. Ömrü mümkün olan en kısa süreye indirilir: çağıran taraf indirme bitince
+ *     `finally` içinde siler, ayrıca [clearStaleCookieFiles] süreç öldürüldüğünde
+ *     geride kalan artıkları bir sonraki kullanımda temizler.
+ */
 object CookieHelper {
     private const val TAG = "CookieHelper"
+    private const val COOKIE_FILE_NAME = "youtube_cookies.txt"
+    private const val TEMP_PREFIX = "youtube_cookies_tmp_"
 
     fun saveCookies(context: Context): File? {
         try {
+            // Önceki koşulardan (süreç öldürülmesi, çökme) kalan artıklar temizlenir.
+            clearStaleCookieFiles(context)
+
             val cookieManager = CookieManager.getInstance()
             val youtubeCookies = cookieManager.getCookie("https://youtube.com") ?: ""
             val googleCookies = cookieManager.getCookie("https://google.com") ?: ""
-            
+
             if (youtubeCookies.isEmpty() && googleCookies.isEmpty()) return null
 
-            val tempFile = File(context.cacheDir, "youtube_cookies_tmp_${System.currentTimeMillis()}.txt")
-            val finalFile = File(context.cacheDir, "youtube_cookies.txt")
+            val tempFile = File(context.cacheDir, "$TEMP_PREFIX${System.currentTimeMillis()}.txt")
+            val finalFile = File(context.cacheDir, COOKIE_FILE_NAME)
 
             BufferedWriter(OutputStreamWriter(tempFile.outputStream(), Charsets.UTF_8)).use { writer ->
                 writer.write("# Netscape HTTP Cookie File\n")
@@ -49,18 +67,43 @@ object CookieHelper {
                 writeCookiesForDomain(googleCookies, ".google.com")
             }
             cookieManager.flush()
-            
-            // Atomic swap
-            if (finalFile.exists()) {
-                finalFile.delete()
+
+            // Atomik takas. renameTo başarısız olabilir; dönüş değeri kontrol edilmezse
+            // geçici dosya oturum çerezleriyle birlikte cacheDir'de kalıcı olarak birikir.
+            if (finalFile.exists() && !finalFile.delete()) {
+                Log.w(TAG, "Eski çerez dosyası silinemedi, geçici dosya temizleniyor")
+                tempFile.delete()
+                return null
             }
-            tempFile.renameTo(finalFile)
-            
-            Log.d(TAG, "Cookies securely saved as plain text for yt-dlp")
+            if (!tempFile.renameTo(finalFile)) {
+                Log.w(TAG, "Çerez dosyası taşınamadı, geçici dosya temizleniyor")
+                tempFile.delete()
+                return null
+            }
+
+            Log.d(TAG, "Çerez dosyası yazıldı (düz metin, yt-dlp gereği); kullanım sonrası silinir")
             return finalFile
         } catch (e: Exception) {
             Log.e(TAG, "Error saving cookies", e)
             return null
+        }
+    }
+
+    /**
+     * Önceki koşulardan kalan çerez dosyalarını siler.
+     *
+     * Normal akışta çağıran taraf dosyayı `finally` içinde siler, ama uygulama süreci
+     * öldürülürse o blok hiç çalışmaz ve tam Google oturum çerezleri diskte kalır.
+     */
+    fun clearStaleCookieFiles(context: Context) {
+        try {
+            context.cacheDir.listFiles()?.forEach { f ->
+                if (f.isFile && (f.name == COOKIE_FILE_NAME || f.name.startsWith(TEMP_PREFIX))) {
+                    f.delete()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Artık çerez dosyaları temizlenemedi: ${e.message}")
         }
     }
 }

@@ -114,6 +114,14 @@ class DownloadQueueManager {
   }
 
   Future<void> saveTasksToStorage() async {
+    // Kuyruk diskten YÜKLENMEDEN yazma yapılmaz. Aksi hâlde bellekteki henüz boş olan
+    // liste kullanıcının kayıtlı kuyruğunu ezer. İki gerçek yol vardı:
+    //   1. DownloadProvider constructor'ı init() çağrısını await etmiyor, yani
+    //      _loadTasksFromStorage bitmeden bir kayıt tetiklenebiliyor.
+    //   2. WorkManager arka plan izolatı kendi DownloadQueueManager örneğini kurup
+    //      aynı SharedPreferences anahtarına yazıyor.
+    // Yazmamak veri kaybettirmez, yanlış yazmak kaybettirir.
+    if (!isLoaded) return;
     try {
       final prefs = await SharedPreferences.getInstance();
       final jsonList = tasks.map((t) => t.toJson()).toList();

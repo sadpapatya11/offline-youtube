@@ -86,7 +86,9 @@ class SettingsProvider extends ChangeNotifier {
   Future<void> updateNetworkMode(NetworkRestrictionMode mode) async {
     _settings = _settings.copyWith(networkMode: mode);
     await SettingsManager.instance.saveSettings(_settings);
-    BackgroundSyncManager.updateTaskConstraints(mode == NetworkRestrictionMode.anyWifi);
+    // await ZORUNLU: beklenmezse kısıt güncellemesi ayar kaydından sonra sessizce
+    // yarışa girer ve "Sadece Wi-Fi" seçimi arka plan işine hiç yansımayabilir.
+    await BackgroundSyncManager.syncWithSettings(_settings);
     notifyListeners();
   }
 
@@ -128,6 +130,7 @@ class SettingsProvider extends ChangeNotifier {
     final updated = List<String>.from(_settings.savedPlaylists)..add(trimmed);
     _settings = _settings.copyWith(savedPlaylists: updated);
     await SettingsManager.instance.saveSettings(_settings);
+    await BackgroundSyncManager.syncWithSettings(_settings);
     notifyListeners();
   }
 
@@ -136,6 +139,9 @@ class SettingsProvider extends ChangeNotifier {
       ..removeWhere((item) => item == url);
     _settings = _settings.copyWith(savedPlaylists: updated);
     await SettingsManager.instance.saveSettings(_settings);
+    // Son liste de silindiyse arka plan işi tamamen iptal edilir; aksi hâlde cihaz
+    // yapacak işi olmadan her 15 dakikada bir motor ayağa kaldırmaya devam eder.
+    await BackgroundSyncManager.syncWithSettings(_settings);
     notifyListeners();
   }
 

@@ -46,7 +46,7 @@ class BackgroundSyncManager {
       );
       
       final settings = await SettingsManager.instance.loadSettings();
-      await updateTaskConstraints(settings.networkMode == NetworkRestrictionMode.anyWifi);
+      await syncWithSettings(settings);
     } catch (e) {
       if (kDebugMode) {
         print('BackgroundSyncManager: Initialization failed: $e');
@@ -64,12 +64,39 @@ class BackgroundSyncManager {
           networkType: isWifiOnly ? NetworkType.unmetered : NetworkType.connected,
           requiresStorageNotLow: true,
         ),
-        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+        // update, keep DEĞİL: keep ile mevcut bir iş kayıtlıysa yeni kısıtlar hiç
+        // uygulanmıyordu. Kullanıcı "Sadece Wi-Fi"yi açsa bile eski connected kısıtı
+        // yürürlükte kalıyor ve senkron mobil veriden çalışmaya devam ediyordu.
+        existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
       );
     } catch (e) {
       if (kDebugMode) {
         print('BackgroundSyncManager: register periodic task failed: $e');
       }
     }
+  }
+
+  /// Arka plan eşitlemesini tamamen durdurur.
+  ///
+  /// Kayıtlı oynatma listesi kalmadığında iş kayıtlı bırakılırsa, cihaz uygulama hiç
+  /// açılmadan her 15 dakikada bir FlutterEngine ayağa kaldırıp hiçbir işe yaramayan
+  /// bir tur atar. Kullanıcının pil raporunda görünen tüketimin karşılığı yoktur.
+  static Future<void> cancelSync() async {
+    try {
+      await Workmanager().cancelByUniqueName(_taskUniqueName);
+    } catch (e) {
+      if (kDebugMode) {
+        print('BackgroundSyncManager: cancel failed: $e');
+      }
+    }
+  }
+
+  /// Eşitleme işini yalnız gerçekten yapılacak iş varken kayıtlı tutar.
+  static Future<void> syncWithSettings(AppSettings settings) async {
+    if (settings.savedPlaylists.isEmpty) {
+      await cancelSync();
+      return;
+    }
+    await updateTaskConstraints(settings.networkMode == NetworkRestrictionMode.anyWifi);
   }
 }

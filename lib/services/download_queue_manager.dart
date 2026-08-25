@@ -17,6 +17,31 @@ class DownloadQueueManager {
   static const String _tasksPrefKey = 'offline_youtube_persisted_tasks_v3';
   static const String _queuePausedPrefKey = 'offline_youtube_queue_paused_v3';
 
+  /// Native taraftan gelen 'started' ve 'progress' olayının uygulanıp
+  /// uygulanmayacağına karar verir.
+  ///
+  /// yt-dlp süreci durdurulduktan sonra bile stdout okuyucusu gecikmiş bir ilerleme
+  /// satırı teslim edebilir. Bu olay koşulsuz uygulanırsa, kullanıcının duraklattığı
+  /// (veya iptal ettiği) görev sahte biçimde `downloading` durumuna döner ve
+  /// [activeTaskId] yeniden dolar. O noktadan sonra [processNextQueue] her çağrıda
+  /// erken döner ve süreç zaten öldüğü için durumu düzeltecek yeni bir olay da gelmez:
+  /// kuyruk kalıcı olarak kilitlenir.
+  ///
+  /// Bu yüzden ilerleme yalnız görev gerçekten aktif olabilecek bir durumdayken uygulanır.
+  static bool shouldApplyProgressEvent(DownloadStatus current) {
+    switch (current) {
+      case DownloadStatus.queued:
+      case DownloadStatus.fetchingMetadata:
+      case DownloadStatus.downloading:
+        return true;
+      case DownloadStatus.paused:
+      case DownloadStatus.completed:
+      case DownloadStatus.error:
+      case DownloadStatus.cancelled:
+        return false;
+    }
+  }
+
   final List<DownloadTask> tasks = [];
   bool isProcessingQueue = false;
   String? activeTaskId;
@@ -200,6 +225,9 @@ class DownloadQueueManager {
         switch (status) {
           case 'started':
           case 'progress':
+            // Duraklatılan veya iptal edilen görevin ölmekte olan sürecinden gelen
+            // gecikmiş olay görevi diriltmemeli (bkz. shouldApplyProgressEvent).
+            if (!shouldApplyProgressEvent(task.status)) break;
             task.status = DownloadStatus.downloading;
             task.progress = (data['progress'] as num?)?.toDouble() ?? 0.0;
             task.speed = data['speed']?.toString() ?? '';

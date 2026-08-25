@@ -29,6 +29,31 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const int maxPlaylistEntries = 250;
   static const int defaultVideoDurationSeconds = 180;
 
+  /// Eşitleme turunda eklenen görevler için ÇAKIŞMAYAN kimlik üretir.
+  ///
+  /// Döngü senkron çalıştığı için [epochMs] aynı turdaki tüm görevlerde aynı olur;
+  /// benzersizliği sağlayan tek şey [index]'tir. Sabit bir son ek kullanılırsa
+  /// aynı turda eklenen görevlerin hepsi aynı kimliği alır ve kuyruktan tek bir
+  /// videoyu silmek hepsini birden siler.
+  static String buildSyncTaskId(int epochMs, int index) => '${epochMs}_jit_$index';
+
+  /// Eşitleme sırasında bir videonun veya görevin kaldırılıp kaldırılmayacağına karar verir.
+  ///
+  /// Kritik kural: karar YALNIZ çevrimiçi listesi BAŞARIYLA çekilebilmiş oynatma
+  /// listeleri için verilebilir. Bir liste ağ hatası, 429 veya botguard yüzünden
+  /// çekilemediyse o listenin içeriği bilinmiyor demektir; "listede görünmüyor" bilgisi
+  /// yoktur, dolayısıyla yokluğu silme gerekçesi sayılamaz. Aksi hâlde geçici bir ağ
+  /// kesintisi kullanıcının indirilmiş kütüphanesini çöpe atar ve kuyruğunu siler.
+  static bool shouldRemoveFromSync({
+    required String? sourcePlaylistUrl,
+    required Set<String> successfulPlaylists,
+    required bool stillOnline,
+  }) {
+    if (sourcePlaylistUrl == null || sourcePlaylistUrl.isEmpty) return false;
+    if (!successfulPlaylists.contains(sourcePlaylistUrl)) return false;
+    return !stillOnline;
+  }
+
   final DownloadQueueManager _manager = DownloadQueueManager.instance;
   StreamSubscription? _updateSub;
   bool _disposed = false;
@@ -503,6 +528,9 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       final Set<String> allOnlineVideoIds = {};
       final Set<String> allOnlineUrls = {};
       final List<Map<String, dynamic>> orderedNewEntries = [];
+      // Silme kararı liste BAZINDA verilir: yalnız burada biriken listelerin
+      // çevrimiçi içeriği gerçekten bilinir (bkz. shouldRemoveFromSync).
+      final Set<String> successfulPlaylists = {};
 
       for (final playlistUrl in settings.savedPlaylists) {
         if (playlistUrl.trim().isEmpty) continue;
@@ -514,7 +542,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           }
 
           final entries = await NativeBridge.instance.fetchPlaylistEntries(playlistUrl);
-          if (entries.isNotEmpty) anyPlaylistSucceeded = true;
+          if (entries.isNotEmpty) {
+            anyPlaylistSucceeded = true;
+            successfulPlaylists.add(playlistUrl);
+          }
           for (final entry in entries) {
             final u = (entry['url'] as String? ?? '').trim();
             final vid = VideoItem.extractVideoId(u) ?? (entry['id'] as String? ?? '').trim();
@@ -543,29 +574,34 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         } catch (_) {}
       }
 
-      if (anyPlaylistSucceeded) {
-        for (final video in downloadedVideos) {
-          if (video.playlistUrl == null || video.playlistUrl!.isEmpty || !settings.savedPlaylists.contains(video.playlistUrl)) continue;
-          final vid = video.youtubeId;
-          final stillInPlaylist = (vid != null && allOnlineVideoIds.contains(vid)) || allOnlineUrls.contains(video.sourceUrl);
-          if (!stillInPlaylist) {
-            final moved = await StorageManager.instance.moveToTrash(video);
-            if (moved) trashedCount++;
-          }
+      for (final video in downloadedVideos) {
+        if (video.playlistUrl == null || video.playlistUrl!.isEmpty) continue;
+        if (!settings.savedPlaylists.contains(video.playlistUrl)) continue;
+        final vid = video.youtubeId;
+        final stillInPlaylist = (vid != null && allOnlineVideoIds.contains(vid)) || allOnlineUrls.contains(video.sourceUrl);
+        if (shouldRemoveFromSync(
+          sourcePlaylistUrl: video.playlistUrl,
+          successfulPlaylists: successfulPlaylists,
+          stillOnline: stillInPlaylist,
+        )) {
+          final moved = await StorageManager.instance.moveToTrash(video);
+          if (moved) trashedCount++;
         }
-        if (trashedCount > 0) _manager.onLibraryNeedsRefresh?.call();
       }
+      if (trashedCount > 0) _manager.onLibraryNeedsRefresh?.call();
 
       for (final t in List.of(_manager.tasks)) {
-        final belongsToSavedPlaylist = t.sourcePlaylistUrl != null && settings.savedPlaylists.contains(t.sourcePlaylistUrl);
-        if (!belongsToSavedPlaylist) continue;
-        if (t.status == DownloadStatus.queued || t.status == DownloadStatus.paused) {
-          final tVid = VideoItem.extractVideoId(t.url);
-          final stillOnline = (tVid != null && allOnlineVideoIds.contains(tVid)) || allOnlineUrls.contains(t.url);
-          if (!stillOnline) {
-            _manager.tasks.remove(t);
-            queueDeletedCount++;
-          }
+        if (t.sourcePlaylistUrl == null || !settings.savedPlaylists.contains(t.sourcePlaylistUrl)) continue;
+        if (t.status != DownloadStatus.queued && t.status != DownloadStatus.paused) continue;
+        final tVid = VideoItem.extractVideoId(t.url);
+        final stillOnline = (tVid != null && allOnlineVideoIds.contains(tVid)) || allOnlineUrls.contains(t.url);
+        if (shouldRemoveFromSync(
+          sourcePlaylistUrl: t.sourcePlaylistUrl,
+          successfulPlaylists: successfulPlaylists,
+          stillOnline: stillOnline,
+        )) {
+          _manager.tasks.remove(t);
+          queueDeletedCount++;
         }
       }
 
@@ -594,6 +630,8 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       final refreshedDownloads = await StorageManager.instance.scanDownloadedVideos();
       int runningTotalSec = refreshedDownloads.fold<int>(0, (sum, v) => sum + (v.durationSeconds ?? 0));
 
+      final syncEpochMs = DateTime.now().millisecondsSinceEpoch;
+      var syncTaskIndex = 0;
       for (final entry in orderedNewEntries) {
         final videoUrl = (entry['url'] as String? ?? '').trim();
         var title = (entry['title'] as String? ?? '').trim();
@@ -617,7 +655,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         if (isAlreadyInQueueFinal) continue;
 
         runningTotalSec += duration;
-        final taskId = '${DateTime.now().millisecondsSinceEpoch}_jit_0';
+        final taskId = buildSyncTaskId(syncEpochMs, syncTaskIndex++);
         final entrySourcePlaylist = (entry['_sourcePlaylistUrl'] as String? ?? '').trim();
         final newTask = DownloadTask(
           id: taskId,

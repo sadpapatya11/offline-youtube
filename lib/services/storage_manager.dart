@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import '../models/trashed_video_item.dart';
 import '../models/video_item.dart';
@@ -18,6 +19,28 @@ class TrashPurgeResult {
   final List<TrashedVideoItem> remaining;
 
   const TrashPurgeResult({required this.purged, required this.remaining});
+}
+
+/// [StorageManager.measureUsedStorage] sonucu.
+///
+/// Ayrı bir tip olmasının nedeni: eski `getUsedStorageBytes` her hata yolunda 0
+/// döndürüyordu ve 0 bayt, "klasör boş" ile "ölçemedim"i AYIRT ETMİYORDU. Depolama
+/// izni geri alındığında veya indirme klasörü native tarafın izin verdiği taban
+/// dizinin dışında kaldığında kota kapısı (`usedBytes >= maxBytes`) hiç kapanmıyor,
+/// uygulama disk dolana kadar indirmeye devam ediyordu. [measured] false ise [bytes]
+/// bir tahmin DEĞİLDİR, karar verirken kullanılmamalıdır.
+class UsedStorageMeasurement {
+  /// Ölçülen bayt. Yalnız [measured] true iken anlamlıdır.
+  final int bytes;
+
+  /// Ölçüm gerçekten yapılabildi mi.
+  final bool measured;
+
+  const UsedStorageMeasurement._(this.bytes, this.measured);
+
+  const UsedStorageMeasurement.of(int bytes) : this._(bytes, true);
+
+  const UsedStorageMeasurement.unknown() : this._(0, false);
 }
 
 class StorageManager {
@@ -126,7 +149,12 @@ class StorageManager {
         }
       } catch (_) {}
 
-      for (final oldPath in oldPaths) {
+      // FIX(veri kaybı): getExternalStorageDirectory() null dönerse (dış depolama
+      // takılı değil, USB aktarım modu, çok kullanıcılı profil) _currentDownloadPath
+      // defaultHiddenPath olarak kalıyordu. Döngü aynı klasörü "eski klasör" sayıp
+      // her dosyayı kendi üzerine rename ediyor, sonra oldDir.delete(recursive: true)
+      // ile TÜM kütüphaneyi (videolar, .meta.json, kapaklar, çöp indeksi) siliyordu.
+      for (final oldPath in migratableOldPaths(oldPaths, _currentDownloadPath)) {
         final oldDir = Directory(oldPath);
         if (!await oldDir.exists()) continue;
 
@@ -148,6 +176,11 @@ class StorageManager {
                   await subEntity.rename(newSubPath);
                 }
               }
+              // Alt klasör gerçekten boşaldıysa kaldır. Dolu kaldıysa delete()
+              // hata verir ve taşınamayan dosyalar yerinde korunur.
+              try {
+                await entity.delete();
+              } catch (_) {}
             }
           } catch (_) {}
         }
@@ -158,35 +191,116 @@ class StorageManager {
           if (await trashIndex.exists()) {
             final content = await trashIndex.readAsString();
             final updatedContent = content.replaceAll(oldPath, _currentDownloadPath);
-            await trashIndex.writeAsString(updatedContent);
+            if (updatedContent != content) {
+              await _writeJsonAtomic(trashIndex, updatedContent);
+            }
           }
         } catch (_) {}
 
-        // İşlem bitince eski boş klasörü silmeye çalış
+        // FIX(veri kaybı): Burada delete(recursive: true) vardı; rename'i patlayan
+        // (ör. dosya sistemleri arası taşımada EXDEV) dosyalar da siliniyordu.
+        // Artık yalnızca klasör gerçekten boşaldıysa silinir.
         try {
-          await oldDir.delete(recursive: true);
+          await oldDir.delete();
         } catch (_) {}
       }
     } catch (_) {}
   }
 
-  Future<int> getUsedStorageBytes() async {
+  /// Kullanılan alanı ölçer ve ölçümün YAPILIP YAPILMADIĞINI da bildirir.
+  ///
+  /// FIX(kota): Eski sürüm yalnız `int` döndürüyor, her hata yolunda 0 veriyordu.
+  /// Native ölçüm de sessizdir: NativeBridge.getFolderSize her istisnayı yutup 0
+  /// döndürür ve MainActivity.getFolderSize izin verilen taban dizinin dışındaki
+  /// yolu reddedip 0L verir. Bu yüzden native 0 doğrulanmadan kabul edilemez,
+  /// Dart tarafında yeniden sayılır.
+  Future<UsedStorageMeasurement> measureUsedStorage() async {
+    int nativeBytes = 0;
     try {
-      return await NativeBridge.instance.getFolderSize(_currentDownloadPath);
-    } catch (e) {
-      try {
-        final dir = Directory(_currentDownloadPath);
-        if (!await dir.exists()) return 0;
-        var total = 0;
-        await for (final file in dir.list(recursive: true, followLinks: false)) {
-          if (file is File) {
+      nativeBytes = await NativeBridge.instance.getFolderSize(_currentDownloadPath);
+    } catch (_) {
+      nativeBytes = 0;
+    }
+    if (nativeBytes > 0) return UsedStorageMeasurement.of(nativeBytes);
+
+    try {
+      final dir = Directory(_currentDownloadPath);
+      if (!await dir.exists()) {
+        // initDirectory bu klasörü oluşturur; yokluğu depolamanın erişilemez
+        // olduğunu gösterir, "0 bayt kullanılıyor" demek DEĞİLDİR.
+        return const UsedStorageMeasurement.unknown();
+      }
+      var total = 0;
+      await for (final file in dir.list(recursive: true, followLinks: false)) {
+        if (file is File) {
+          try {
             total += await file.length();
+          } catch (_) {
+            // İndirme sürerken yt-dlp .part dosyasını yeniden adlandırabilir;
+            // tek dosyanın okunamaması tüm ölçümü geçersiz kılmamalı, aksi hâlde
+            // kota kapısı indirme sırasında haksız yere kapanır.
           }
         }
-        return total;
-      } catch (_) {
-        return 0;
       }
+      return UsedStorageMeasurement.of(total);
+    } catch (_) {
+      return const UsedStorageMeasurement.unknown();
+    }
+  }
+
+  /// Yalnız GÖRÜNTÜLEME içindir: ölçülemeyen durumu 0 gösterir.
+  /// Kota kararı verirken [measureUsedStorage] artı [isWithinStorageQuota] kullanın.
+  Future<int> getUsedStorageBytes() async => (await measureUsedStorage()).bytes;
+
+  /// Kota kapısı kararı.
+  ///
+  /// Ölçüm yapılamadıysa indirmeye İZİN VERİLMEZ: bilinmeyeni 0 sayan eski davranış,
+  /// depolama izni geri alındığında veya kart çıkarıldığında kullanıcının kotasını
+  /// tamamen devre dışı bırakıyor, disk dolana kadar indirme sürüyordu.
+  static bool isWithinStorageQuota(UsedStorageMeasurement used, int maxBytes) =>
+      used.measured && used.bytes < maxBytes;
+
+  /// İki yolun aynı klasörü gösterip göstermediğini kanonik biçimde karşılaştırır.
+  static bool isSameDirectory(String a, String b) {
+    if (a.isEmpty || b.isEmpty) return false;
+    return p.canonicalize(a) == p.canonicalize(b);
+  }
+
+  /// Göç edilecek eski klasörleri süzer: hedefin kendisi listeden DÜŞÜRÜLÜR.
+  ///
+  /// Ayrı ve saf bir metot olmasının nedeni: kaynak ile hedef aynı klasöre denk
+  /// geldiğinde göç döngüsü sonunda klasörü siliyor, yani kullanıcının bütün
+  /// kütüphanesini yok ediyordu. Bu karar test edilebilir olmak zorundadır.
+  static List<String> migratableOldPaths(
+    List<String> candidates,
+    String currentPath,
+  ) =>
+      candidates.where((c) => !isSameDirectory(c, currentPath)).toList();
+
+  /// [filePath] dosya adını [directoryPath] altına taşır (içerik kopyalanmaz).
+  ///
+  /// Çöp kayıtlarındaki MUTLAK yollar indirme klasörü göç edince geçersizleşir;
+  /// kaydı hemen düşürmek yerine dosya yeni klasörde aranır.
+  static String rebaseToDirectory(String filePath, String directoryPath) =>
+      p.join(directoryPath, p.basename(filePath));
+
+  /// JSON'u geçici dosyaya yazıp hedefin üzerine rename eder.
+  ///
+  /// FIX(atomiklik): writeAsString hedefi ÖNCE sıfırlar. Android süreci tam bu anda
+  /// öldürürse (düşük bellek, pil optimizasyonu, kullanıcı uygulamayı kapatır)
+  /// diskte yarım JSON kalıyor ve çözümlenemediği için TÜM indeks veya üstveri
+  /// kayboluyordu. Aynı klasördeki rename atomiktir: hedef ya eski ya yeni içeriğe
+  /// sahiptir, asla yarım kalmaz.
+  static Future<void> _writeJsonAtomic(File target, String content) async {
+    final tmp = File('${target.path}.tmp');
+    try {
+      await tmp.writeAsString(content, flush: true);
+      await tmp.rename(target.path);
+    } catch (_) {
+      try {
+        if (await tmp.exists()) await tmp.delete();
+      } catch (_) {}
+      rethrow;
     }
   }
 
@@ -212,7 +326,9 @@ class StorageManager {
         'url': url,
         'playlistUrl': playlistUrl,
       };
-      await metaFile.writeAsString(jsonEncode(data));
+      // Yarım yazılan .meta.json çözümlenemez; video kütüphanede gerçek başlık,
+      // süre, sourceUrl ve playlistUrl olmadan görünür (kimlik dosya adına düşer).
+      await _writeJsonAtomic(metaFile, jsonEncode(data));
     } catch (_) {}
   }
 
@@ -326,29 +442,131 @@ class StorageManager {
 
   File get _trashIndexFile => File('$trashPath/trash_index.json');
 
+  /// Çöp indeksi ham JSON'unu kayıtlara çevirir; ÇÖZÜMLENEMEYEN TEK kaydı atlar,
+  /// kalanları korur. Belgenin tamamı bozuksa istisna fırlatır (çağıran karantinaya alır).
+  ///
+  /// Saf ve statik olmasının nedeni: eski kod `.map(...).toList()` kullanıyordu ve
+  /// tek bir bozuk kayıt (elle düzenlenmiş JSON, model alanı değişikliği) istisna
+  /// fırlatıp TÜM indeksi boşaltıyordu. Boşalan indeks ilk yazmada diske geçince
+  /// çöpteki bütün videolar kayıtsız yetim dosyaya dönüşüyor: arayüzde görünmüyor,
+  /// geri alınamıyor, silinemiyor ama diskte yer kaplamaya devam ediyordu.
+  static List<TrashedVideoItem> parseTrashIndex(String content) {
+    final trimmed = content.trim();
+    if (trimmed.isEmpty) return [];
+    final decoded = jsonDecode(trimmed);
+    if (decoded is! List) {
+      throw const FormatException('trash_index.json bir liste değil');
+    }
+    final items = <TrashedVideoItem>[];
+    for (final raw in decoded) {
+      try {
+        items.add(TrashedVideoItem.fromJson(raw as Map<String, dynamic>));
+      } catch (e) {
+        debugPrint('Bozuk çöp kaydı atlandı: $e');
+      }
+    }
+    return items;
+  }
+
+  /// Bozuk çöp indeksi karantinaya alındıysa yedeğin yolu.
+  ///
+  /// Arayüz kullanıcıya "çöp kayıtların bozuktu, yedeği şurada" diyebilsin diye
+  /// tutulur; sessizce boş indeksle devam etmek kaybı görünmez kılıyordu.
+  String? get lastQuarantinedTrashIndexPath => _lastQuarantinedTrashIndexPath;
+  String? _lastQuarantinedTrashIndexPath;
+
   Future<List<TrashedVideoItem>> loadTrashIndex() async {
+    final file = _trashIndexFile;
+    String content;
     try {
-      final file = _trashIndexFile;
       if (!await file.exists()) return [];
-      final content = await file.readAsString();
-      if (content.trim().isEmpty) return [];
-      final list = jsonDecode(content) as List<dynamic>;
-      return list
-          .map((item) => TrashedVideoItem.fromJson(item as Map<String, dynamic>))
-          .toList();
+      content = await file.readAsString();
     } catch (e, s) {
-      debugPrint('ERROR in loadTrashIndex: $e\n$s');
+      debugPrint('ERROR in loadTrashIndex (okuma): $e\n$s');
+      return [];
+    }
+
+    try {
+      return parseTrashIndex(content);
+    } catch (e, s) {
+      debugPrint('ERROR in loadTrashIndex (çözümleme): $e\n$s');
+      // Karantina: bozuk dosyayı yerinde bırakmak yerine yeniden adlandır. Aksi
+      // hâlde bir sonraki _saveTrashIndex tek kopyanın üzerine yazıyor ve
+      // kullanıcının çöpteki videolarının kaydı geri dönülmez biçimde yok oluyordu.
+      try {
+        final backupPath =
+            '$trashPath/trash_index.corrupt-${DateTime.now().millisecondsSinceEpoch}.json';
+        await file.rename(backupPath);
+        _lastQuarantinedTrashIndexPath = backupPath;
+      } catch (e2, s2) {
+        debugPrint('ERROR in loadTrashIndex (karantina): $e2\n$s2');
+      }
       return [];
     }
   }
 
-  Future<void> _saveTrashIndex(List<TrashedVideoItem> items) async {
+  /// Çöp indeksini diske yazar ve BAŞARIYI DÖNDÜRÜR.
+  ///
+  /// bool dönmesinin nedeni: moveToTrash yazma sonucunu hiç sorgulamadan `true`
+  /// diyordu. İndeks yazılamadığında video .trash içine taşınmış ama hiçbir kayıt
+  /// oluşmamış oluyordu, yani dosya hem kütüphaneden hem çöpten kayboluyordu.
+  ///
+  /// Sonuç BİLEREK yalnız moveToTrash'te sorgulanır: diğer çağrılarda yıkıcı iş
+  /// (silme, geri taşıma) zaten tamamlanmıştır, false dönmek çağıranın YouTube
+  /// oynatma listesi temizliğini gerçekleşmiş bir silme için iptal etmesine yol
+  /// açardı. Bayat kalan kayıtlar purgeExpiredTrash'te kendiliğinden düşer.
+  Future<bool> _saveTrashIndex(List<TrashedVideoItem> items) async {
     try {
-      final file = _trashIndexFile;
       final jsonList = items.map((i) => i.toJson()).toList();
-      await file.writeAsString(jsonEncode(jsonList));
+      await _writeJsonAtomic(_trashIndexFile, jsonEncode(jsonList));
+      return true;
     } catch (e, s) {
       debugPrint('ERROR in _saveTrashIndex: $e\n$s');
+      return false;
+    }
+  }
+
+  /// [moveToTrash] yarıda kaldığında .trash'e taşınmış yan dosyaları geri alır.
+  ///
+  /// Neden: video rename'i patladığında (disk dolu, dosya sistemi hatası) meta ve
+  /// kapak .trash içinde kalıyordu. Video kütüphanede duruyor ama .meta.json
+  /// bulunamadığı için gerçek başlık, süre, sourceUrl ve playlistUrl kalıcı olarak
+  /// kayboluyor, video sonraki taramada dosya adıyla ve üstverisiz görünüyordu.
+  Future<void> _rollbackSidecars({
+    required String originalFilePath,
+    required String trashFilePath,
+    required bool movedMeta,
+    String? originalThumbPath,
+    String? trashThumbPath,
+  }) async {
+    if (movedMeta) {
+      try {
+        final srcMeta = File(
+            '${originalFilePath.substring(0, originalFilePath.lastIndexOf('.'))}.meta.json');
+        if (!await srcMeta.exists()) {
+          final destMeta = File(
+              '${trashFilePath.substring(0, trashFilePath.lastIndexOf('.'))}.meta.json');
+          if (await destMeta.exists()) {
+            await destMeta.rename(srcMeta.path);
+          }
+        }
+      } catch (e, s) {
+        debugPrint('ERROR in _rollbackSidecars (meta): $e\n$s');
+      }
+    }
+
+    if (originalThumbPath != null && trashThumbPath != null) {
+      try {
+        final srcThumb = File(originalThumbPath);
+        if (!await srcThumb.exists()) {
+          final destThumb = File(trashThumbPath);
+          if (await destThumb.exists()) {
+            await destThumb.rename(srcThumb.path);
+          }
+        }
+      } catch (e, s) {
+        debugPrint('ERROR in _rollbackSidecars (kapak): $e\n$s');
+      }
     }
   }
 
@@ -398,19 +616,29 @@ class StorageManager {
         }
       } catch (_) {
         // thumbnail taşıma başarısız -> meta'yı geri al ve başarısız say
-        if (movedMeta) {
-          try {
-            final srcMeta = File('${item.filePath.substring(0, item.filePath.lastIndexOf('.'))}.meta.json');
-            if (!await srcMeta.exists()) {
-              final destMeta = File('${destFilePath.substring(0, destFilePath.lastIndexOf('.'))}.meta.json');
-              await destMeta.rename(srcMeta.path);
-            }
-          } catch (_) {}
-        }
+        await _rollbackSidecars(
+          originalFilePath: item.filePath,
+          trashFilePath: destFilePath,
+          movedMeta: movedMeta,
+        );
         return false;
       }
 
-      await srcFile.rename(destFilePath);
+      // FIX(atomiklik): Video rename'i korumasızdı; patladığında meta ve kapak
+      // .trash içinde kalıyor, video kütüphanede üstverisiz sürüyordu.
+      try {
+        await srcFile.rename(destFilePath);
+      } catch (e, s) {
+        debugPrint('ERROR in moveToTrash (video rename): $e\n$s');
+        await _rollbackSidecars(
+          originalFilePath: item.filePath,
+          trashFilePath: destFilePath,
+          movedMeta: movedMeta,
+          originalThumbPath: item.thumbnailPath,
+          trashThumbPath: destThumbPath,
+        );
+        return false;
+      }
 
       // playlistUrl ve uploadDate dahil TÜM üstveri korunur; kalıcı silme anında
       // YouTube oynatma listesinden kaldırma bu alanlara bağlı (bkz. copyForTrash).
@@ -425,7 +653,27 @@ class StorageManager {
         0,
         TrashedVideoItem(video: trashedVideo, deletedAt: DateTime.now()),
       );
-      await _saveTrashIndex(currentTrash);
+      if (!await _saveTrashIndex(currentTrash)) {
+        // FIX(veri kaybı): İndeks yazılamazsa kayıt hiç oluşmaz. Dosya .trash
+        // içinde bırakılırsa kütüphanede de çöpte de görünmez, kullanıcı için
+        // kalıcı kayıptır. Her şeyi eski yerine taşı ve başarısızlığı bildir.
+        try {
+          final movedVideo = File(destFilePath);
+          if (await movedVideo.exists()) {
+            await movedVideo.rename(item.filePath);
+          }
+        } catch (e, s) {
+          debugPrint('ERROR in moveToTrash (video geri alma): $e\n$s');
+        }
+        await _rollbackSidecars(
+          originalFilePath: item.filePath,
+          trashFilePath: destFilePath,
+          movedMeta: movedMeta,
+          originalThumbPath: item.thumbnailPath,
+          trashThumbPath: destThumbPath,
+        );
+        return false;
+      }
 
       return true;
     } catch (e, s) {
@@ -444,9 +692,11 @@ class StorageManager {
           trashed.video.filePath.split(Platform.pathSeparator).last;
       final destFilePath = '$_currentDownloadPath/$fileName';
 
-      if (await srcFile.exists()) {
-        await srcFile.rename(destFilePath);
-      }
+      // FIX(veri kaybı): Dosya yoksa geri yükleme YAPILMAMIŞTIR. Eski kod kaydı
+      // yine de indeksten düşürüp başarı bildiriyordu; video hem çöpten hem
+      // kütüphaneden kayboluyor, kullanıcı hatayı hiç görmüyordu.
+      if (!await srcFile.exists()) return false;
+      await srcFile.rename(destFilePath);
 
       // Taşı geri: .meta.json
       final srcMeta = File('${trashed.video.filePath.substring(0, trashed.video.filePath.lastIndexOf('.'))}.meta.json');
@@ -482,7 +732,13 @@ class StorageManager {
       final List<TrashedVideoItem> activeTrash = [];
       final List<TrashedVideoItem> purged = [];
 
-      for (final item in currentTrash) {
+      for (final raw in currentTrash) {
+        // Yol tazeleme ÖNCE yapılır: indirme klasörü göç ettiğinde (veya yedek
+        // yola düşüldüğünde) indeksteki mutlak yollar bir tur boyunca geçersizdir.
+        // Tazelenmezse kayıt sessizce düşürülüyor, dosya .trash içinde kayıtsız
+        // kalıyordu: arayüzde görünmez, geri alınamaz, silinemez ama kotaya sayılır.
+        final healed = await _healTrashRecord(raw);
+        final item = healed ?? raw;
         if (item.isExpired) {
           // Kalıcı sil
           try {
@@ -497,12 +753,11 @@ class StorageManager {
             PlaybackManager.instance.clearPosition(item.video.id);
           } catch (_) {}
           purged.add(item);
-        } else {
-          // Dosya gerçekten mevcutsa aktif çöp listesinde tut
-          if (File(item.video.filePath).existsSync()) {
-            activeTrash.add(item);
-          }
+        } else if (healed != null) {
+          activeTrash.add(healed);
         }
+        // healed == null ve süresi dolmamış: dosya diskte hiçbir yerde yok,
+        // kaydın geri yüklenecek bir karşılığı kalmadığı için düşürülür.
       }
 
       await _saveTrashIndex(activeTrash);
@@ -510,6 +765,35 @@ class StorageManager {
     } catch (e, s) {
       debugPrint('ERROR in purgeExpiredTrash: $e\n$s');
       return const TrashPurgeResult(purged: [], remaining: []);
+    }
+  }
+
+  /// Çöp kaydının dosya yolunu doğrular, gerekiyorsa güncel [trashPath] altına taşır.
+  ///
+  /// null dönmesi "dosya diskte gerçekten yok" demektir; kaydın kaybolan yolu ile
+  /// kaybolan dosyası bu şekilde birbirinden ayrılır.
+  Future<TrashedVideoItem?> _healTrashRecord(TrashedVideoItem item) async {
+    try {
+      if (await File(item.video.filePath).exists()) return item;
+
+      final rebased = rebaseToDirectory(item.video.filePath, trashPath);
+      if (rebased == item.video.filePath) return null;
+      if (!await File(rebased).exists()) return null;
+
+      final oldThumb = item.video.thumbnailPath;
+      String? newThumb;
+      if (oldThumb != null) {
+        final rebasedThumb = rebaseToDirectory(oldThumb, trashPath);
+        if (await File(rebasedThumb).exists()) newThumb = rebasedThumb;
+      }
+
+      return TrashedVideoItem(
+        video: item.video.copyForTrash(filePath: rebased, thumbnailPath: newThumb),
+        deletedAt: item.deletedAt,
+      );
+    } catch (e, s) {
+      debugPrint('ERROR in _healTrashRecord: $e\n$s');
+      return null;
     }
   }
 

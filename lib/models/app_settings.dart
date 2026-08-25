@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../services/storage_manager.dart';
 
 enum NetworkRestrictionMode {
@@ -55,8 +57,8 @@ class AppSettings {
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) => AppSettings(
-        maxStorageLimitGB: json['maxStorageLimitGB'] as int? ?? 20,
-        maxVideoDurationHours: json['maxVideoDurationHours'] as int? ?? 6,
+        maxStorageLimitGB: _readLimit(json['maxStorageLimitGB'], 20),
+        maxVideoDurationHours: _readLimit(json['maxVideoDurationHours'], 6),
         networkMode: NetworkRestrictionMode.values[
             (json['networkMode'] as int? ?? 0).clamp(0, NetworkRestrictionMode.values.length - 1)],
         customDownloadPath: json['customDownloadPath'] as String? ??
@@ -67,5 +69,50 @@ class AppSettings {
                 ?.map((e) => e.toString())
                 .toList() ??
             const [],
+      );
+
+  /// Kayıtlı sayısal sınırı okur ve alt sınırı uygular.
+  ///
+  /// Kayıtta 0 (veya negatif) bir değer kuyruğu KALICI kilitliyordu:
+  /// processNextQueue `usedBytes >= maxBytes` ve
+  /// `totalDurationSec >= maxDurationSec` kapılarında her görevi "kota doldu"
+  /// diye hataya düşürüyor, kullanıcı ayarı elle düzeltene kadar tek bir indirme
+  /// bile başlamıyordu. Hemen aşağıdaki networkMode clamp'i ile aynı kalıp.
+  /// Değer yoksa varsayılan, geçersizse izin verilen en küçük değer (1) kullanılır;
+  /// varsayılana yükseltmek kullanıcının hiç vermediği bir sınırı uydurmak olurdu.
+  static int _readLimit(dynamic raw, int fallback) {
+    if (raw is! num) return fallback;
+    final value = raw.toInt();
+    return value < 1 ? 1 : value;
+  }
+
+  /// Değer eşitliği: ayarların GERÇEKTEN değişip değişmediği ölçülebilsin diye.
+  ///
+  /// main.dart'taki ProxyProvider update'i her SettingsProvider veya
+  /// LibraryProvider bildiriminde koşuyor. Kimlik karşılaştırmasıyla "değişmedi"
+  /// denemediği için her indirme bitişinde onSettingsChanged çağrılıyor, o da
+  /// processNextQueue üzerinden iki tam disk taraması (getUsedStorageBytes +
+  /// scanDownloadedVideos) başlatıyordu.
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AppSettings &&
+          other.maxStorageLimitGB == maxStorageLimitGB &&
+          other.maxVideoDurationHours == maxVideoDurationHours &&
+          other.networkMode == networkMode &&
+          other.customDownloadPath == customDownloadPath &&
+          other.autoDownloadOnPaste == autoDownloadOnPaste &&
+          other.playlistReverseOrder == playlistReverseOrder &&
+          listEquals(other.savedPlaylists, savedPlaylists);
+
+  @override
+  int get hashCode => Object.hash(
+        maxStorageLimitGB,
+        maxVideoDurationHours,
+        networkMode,
+        customDownloadPath,
+        autoDownloadOnPaste,
+        playlistReverseOrder,
+        Object.hashAll(savedPlaylists),
       );
 }

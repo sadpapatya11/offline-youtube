@@ -21,12 +21,31 @@ class DownloadTile extends StatelessWidget {
     this.onPrioritize,
   });
 
+  /// Küçük resim kutusunun ölçüleri. Kod çözme genişliği de buradan türediği
+  /// için kutu büyütülünce çözünürlük kendiliğinden büyür, ikinci bir sayı
+  /// güncellemek gerekmez.
+  static const double _thumbBoxWidth = 64;
+  static const double _thumbBoxHeight = 48;
+
+  /// BoxFit.cover, kutudan geniş oranlı bir kaynağı kutunun yüksekliğine göre
+  /// ölçekleyip yanlarından kırpar: 16:9 bir küçük resim için 48 dp yükseklik
+  /// yaklaşık 86 dp genişlik ister. Kutu genişliğinin iki katı, YouTube'un
+  /// kullandığı tüm oranları (16:9 ve 4:3) yumuşama olmadan karşılar.
+  static const double _thumbDecodeWidth = _thumbBoxWidth * 2;
+
   @override
   Widget build(BuildContext context) {
     final isDownloading = task.status == DownloadStatus.downloading;
     final isPaused = task.status == DownloadStatus.paused;
     final isError = task.status == DownloadStatus.error;
     final hasThumbnail = task.thumbnail != null && task.thumbnail!.isNotEmpty;
+
+    // Küçük resmin kod çözme genişliği (cihaz pikseli). Ölçü sıfır çıkarsa
+    // uydurma bir sayı koymuyoruz: cacheWidth sıfır olursa Image assert atar,
+    // o yüzden sınır tamamen kalkar ve kaynak kendi boyutuyla çözülür.
+    final decodeWidthPx =
+        (_thumbDecodeWidth * MediaQuery.devicePixelRatioOf(context)).round();
+    final thumbCacheWidth = decodeWidthPx > 0 ? decodeWidthPx : null;
 
     return AmoledCard(
       padding: const EdgeInsets.all(12),
@@ -40,8 +59,8 @@ class DownloadTile extends StatelessWidget {
               ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: Container(
-                  width: 64,
-                  height: 48,
+                  width: _thumbBoxWidth,
+                  height: _thumbBoxHeight,
                   decoration: BoxDecoration(
                     color: _getStatusBgColor(),
                     borderRadius: BorderRadius.circular(8),
@@ -54,6 +73,17 @@ class DownloadTile extends StatelessWidget {
                       ? Image.network(
                           task.thumbnail!,
                           fit: BoxFit.cover,
+                          // FIX(bellek): Kaynak tam çözünürlükte çözülüp
+                          // ImageCache'e konuyordu. YouTube'un verdiği küçük
+                          // resim 1280x720 olduğunda çözülmüş kare tamponu
+                          // yaklaşık 3.5 MB tutuyor; elli görevlik bir kuyrukta
+                          // 64x48'lik kutular yüzlerce MB'lık önbellek
+                          // dolduruyor, düşük bellekli cihazda kare atlamaları
+                          // ve sistem tarafından öldürülme riski doğuyordu.
+                          // Kardeş dosya video_tile.dart aynı sınırı zaten
+                          // uyguluyor, burada da uygulanmazsa kuyruk ekranı
+                          // kütüphane ekranından farklı davranmaya devam eder.
+                          cacheWidth: thumbCacheWidth,
                           errorBuilder: (context, error, stackTrace) => Center(
                             child: Icon(
                               _getStatusIcon(),
@@ -98,7 +128,21 @@ class DownloadTile extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 5),
-                    Row(
+                    // FIX(tasma): Bu satır 360 dp'lik yaygın Android genişliğinde
+                    // taşıyordu. Küçük resim, boşluklar ve iki aksiyon butonu
+                    // düşüldükten sonra bu sütuna yaklaşık 124 dp kalıyor, durum
+                    // etiketi artı süre artı boyut çipi ise 260 dp'yi geçiyor. Row
+                    // hiçbir çocuğunu küçültemediği için debug'da sarı siyah taşma
+                    // bandı çiziliyor, release'de boyut bilgisi aksiyon butonlarının
+                    // altına giriyordu. Wrap taşma yerine alt satıra geçer; çip
+                    // içindeki metin Flexible olduğu için tek başına da satırdan
+                    // geniş kalamaz. Ayıraç nokta kaldırıldı: alt satıra düşen
+                    // öksüz bir nokta bozuk arayüz gibi görünüyordu, aralığı artık
+                    // Wrap.spacing veriyor.
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 6,
+                      runSpacing: 4,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -109,6 +153,8 @@ class DownloadTile extends StatelessWidget {
                           ),
                           child: Text(
                             _getStatusLabel(),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: _getStatusColor(),
                               fontSize: 10.5,
@@ -117,8 +163,7 @@ class DownloadTile extends StatelessWidget {
                           ),
                         ),
                         if (task.durationSeconds != null &&
-                            task.durationSeconds! > 0) ...[
-                          const SizedBox(width: 6),
+                            task.durationSeconds! > 0)
                           Text(
                             task.formattedDuration,
                             style: const TextStyle(
@@ -126,17 +171,7 @@ class DownloadTile extends StatelessWidget {
                               fontSize: 11,
                             ),
                           ),
-                        ],
-                        if (task.formattedSizeInfo.isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          const Text(
-                            '•',
-                            style: TextStyle(
-                              color: AmoledTheme.subText,
-                              fontSize: 11,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
+                        if (task.formattedSizeInfo.isNotEmpty)
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 5, vertical: 1.5),
@@ -153,18 +188,21 @@ class DownloadTile extends StatelessWidget {
                                   color: AmoledTheme.brandRed,
                                 ),
                                 const SizedBox(width: 3),
-                                Text(
-                                  task.formattedSizeInfo,
-                                  style: const TextStyle(
-                                    color: AmoledTheme.pureWhite,
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w600,
+                                Flexible(
+                                  child: Text(
+                                    task.formattedSizeInfo,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: AmoledTheme.pureWhite,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        ],
                       ],
                     ),
                   ],
@@ -191,31 +229,47 @@ class DownloadTile extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${task.progress.toStringAsFixed(1)}%',
-                      style: TextStyle(
-                        color: isPaused
-                            ? const Color(0xFFFFCC00)
-                            : AmoledTheme.pureWhite,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (task.formattedSizeInfo.isNotEmpty) ...[
-                      const SizedBox(width: 6),
-                      Text(
-                        '(${task.formattedSizeInfo})',
-                        style: const TextStyle(
-                          color: Color(0xFF81D4FA),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
+                // FIX(tasma): Yüzde artı boyut bloğu, hız ve kalan süre
+                // etiketleriyle birlikte "45.2 MB / 120.5 MB" gibi uzun boyut
+                // metinlerinde 302 dp'lik kart iç genişliğini aşıyor ve satır
+                // taşıyordu. Blok ve içindeki iki metin Flexible olduğu için
+                // artık kalan yere sığar: taşma yerine metin kısalır, hız ve
+                // kalan süre etiketleri hiç kırpılmaz.
+                Flexible(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          '${task.progress.toStringAsFixed(1)}%',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isPaused
+                                ? const Color(0xFFFFCC00)
+                                : AmoledTheme.pureWhite,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
+                      if (task.formattedSizeInfo.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            '(${task.formattedSizeInfo})',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF81D4FA),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
                 if (task.speed.isNotEmpty)
                   Text(
@@ -264,35 +318,14 @@ class DownloadTile extends StatelessWidget {
               ),
             ),
           ],
-          if (isPaused &&
-              task.errorMessage != null &&
-              task.errorMessage!.contains('Mobil veri koruması')) ...[
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF2A1E00),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFFFFB300)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.wifi_off_rounded,
-                      color: Color(0xFFFFB300), size: 16),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      task.errorMessage!,
-                      style: const TextStyle(
-                        color: Color(0xFFFFE082),
-                        fontSize: 11,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+          // FIX(olu-ui): Burada "Mobil veri koruması" metnini arayan sarı bir
+          // Wi-Fi paneli vardı ama o dize projede hiçbir yerde üretilmiyordu
+          // (grep ile doğrulandı: tek geçtiği yer bu koşulun kendisiydi) ve ağ
+          // kısıtı yüzünden bekleyen görev paused değil error durumuna
+          // alınıyordu. Yani panel hiçbir zaman çizilmiyordu, buna karşılık
+          // kullanıcı geçici ağ beklemesini kırmızı "Hata" olarak görüyordu.
+          // Ölü dal kaldırıldı; kalıcı çözüm DownloadTask'a tipli bir bekleme
+          // nedeni alanı eklemektir, dize eşleştirmesi değil.
         ],
       ),
     );

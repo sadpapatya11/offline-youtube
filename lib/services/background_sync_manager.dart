@@ -41,7 +41,12 @@ class BackgroundSyncManager {
 
   static Future<void> initialize() async {
     try {
-      Workmanager().initialize(
+      // await ŞART: initialize, callback handle'ı SharedPreferences'a yazan
+      // platform çağrısını bekletir. Beklenmezse periyodik iş handle yazılmadan
+      // kaydedilebiliyor; WorkManager uyandığında BackgroundWorker handle'ı
+      // çözemeyip Result.failure() dönüyor ve eşitleme release'de HİÇ çalışmıyor,
+      // üstelik sessizce.
+      await Workmanager().initialize(
         callbackDispatcher,
       );
       

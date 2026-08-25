@@ -55,6 +55,9 @@ class _PlaylistSelectionScreenState extends State<PlaylistSelectionScreen> {
 
   void _clearAll() => setState(_selected.clear);
 
+  /// Seçimi listenin ilk [count] girdisiyle DEĞİŞTİRİR (eklemez).
+  /// Etiket bu yüzden "Yalnız İlk N": ekran varsayılan olarak dolu geldiği için
+  /// eskiden bu düğme kullanıcının mevcut seçimini sessizce siliyordu.
   void _selectFirst(int count) {
     setState(() {
       _selected
@@ -169,7 +172,7 @@ class _PlaylistSelectionScreenState extends State<PlaylistSelectionScreen> {
           if (_entries.length > _quickPickCount) ...[
             const SizedBox(width: 6),
             _buildActionChip(
-              label: 'İlk $_quickPickCount',
+              label: 'Yalnız İlk $_quickPickCount',
               onTap: () => _selectFirst(_quickPickCount),
             ),
           ],
@@ -287,32 +290,42 @@ class _PlaylistSelectionScreenState extends State<PlaylistSelectionScreen> {
   Widget _buildBottomBar() {
     final hasSelection = _selected.isNotEmpty;
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
       decoration: const BoxDecoration(
         color: AmoledTheme.cardDark,
         border: Border(top: BorderSide(color: AmoledTheme.accentGray)),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextButton(
-              onPressed: () => Navigator.pop<List<PlaylistEntry>>(context),
-              child: const Text('İptal',
-                  style: TextStyle(color: AmoledTheme.subText)),
-            ),
+      // FIX(safearea): Bu çubuk Scaffold'un bottomNavigationBar'ı değil, Column'un
+      // son çocuğu; sabit 14 px alt boşluk sistem gezinme çubuğunu telafi etmiyordu.
+      // 3 düğmeli gezinme kullanan cihazlarda "indir" düğmesi çubuğun altında
+      // kalıyor ve dokunuşlar sisteme gidiyordu, yani ekran tamamlanamıyordu.
+      // Arka plan yine tam genişlikte kalsın diye SafeArea Container'ın İÇİNDE.
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  onPressed: () => Navigator.pop<List<PlaylistEntry>>(context),
+                  child: const Text('İptal',
+                      style: TextStyle(color: AmoledTheme.subText)),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.download_rounded, size: 18),
+                  label: Text(hasSelection
+                      ? '${_selected.length} videoyu indir'
+                      : 'Video seçin'),
+                  onPressed: hasSelection ? _confirm : null,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            flex: 2,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.download_rounded, size: 18),
-              label: Text(hasSelection
-                  ? '${_selected.length} videoyu indir'
-                  : 'Video seçin'),
-              onPressed: hasSelection ? _confirm : null,
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

@@ -24,12 +24,25 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   final GlobalKey<QueueScreenState> _queueKey =
       GlobalKey<QueueScreenState>();
 
+  /// Açılış eşitlemesi uygulama ömründe yalnız bir kez tetiklenir.
+  bool _initialSyncStarted = false;
+
+  /// Ayar yüklemesini beklerken dinlenen sağlayıcı. `dispose` sırasında
+  /// `context.read` güvenli olmadığı için referans burada tutulur.
+  SettingsProvider? _pendingSettingsProvider;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _performInitialSync();
     });
+  }
+
+  @override
+  void dispose() {
+    _pendingSettingsProvider?.removeListener(_onSettingsLoaded);
+    super.dispose();
   }
 
   void _performInitialSync() async {
@@ -42,16 +55,39 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     if (!mounted) return;
     final settingsProvider = context.read<SettingsProvider>();
-    final downloadProvider = context.read<DownloadProvider>();
-    final libraryProvider = context.read<LibraryProvider>();
 
-    if (!settingsProvider.isLoading &&
-        settingsProvider.settings.savedPlaylists.isNotEmpty) {
-      downloadProvider.syncSavedPlaylists(
-        settings: settingsProvider.settings,
-        libraryProvider: libraryProvider,
-      );
+    // FIX(acilis-yarisi): Eşitleme artık KAREYE değil VERİYE bağlı. Bildirim
+    // izni zaten verilmiş bir cihazda Permission çağrısı anında dönüyor, ayarlar
+    // ise hâlâ diskten okunuyordu; isLoading true olduğu için kayıtlı listelerin
+    // açılış eşitlemesi sessizce atlanıyordu. Kullanıcı "Takip Edilen Listeler"e
+    // liste eklemiş olmasına rağmen yeni videolar hiç inmiyor, tek çare Ayarlar'
+    // daki elle eşitleme oluyordu.
+    if (settingsProvider.isLoading) {
+      _pendingSettingsProvider = settingsProvider;
+      settingsProvider.addListener(_onSettingsLoaded);
+      return;
     }
+
+    _syncSavedPlaylistsOnce(settingsProvider);
+  }
+
+  void _onSettingsLoaded() {
+    final settingsProvider = _pendingSettingsProvider;
+    if (settingsProvider == null || settingsProvider.isLoading) return;
+    settingsProvider.removeListener(_onSettingsLoaded);
+    _pendingSettingsProvider = null;
+    if (!mounted) return;
+    _syncSavedPlaylistsOnce(settingsProvider);
+  }
+
+  void _syncSavedPlaylistsOnce(SettingsProvider settingsProvider) {
+    if (_initialSyncStarted) return;
+    _initialSyncStarted = true;
+    if (settingsProvider.settings.savedPlaylists.isEmpty) return;
+    context.read<DownloadProvider>().syncSavedPlaylists(
+          settings: settingsProvider.settings,
+          libraryProvider: context.read<LibraryProvider>(),
+        );
   }
 
   void _navigateToTab(int index) {

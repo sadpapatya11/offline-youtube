@@ -10,6 +10,33 @@ import '../widgets/amoled_fast_scroller.dart';
 import '../widgets/video_tile.dart';
 import 'player_screen.dart';
 
+/// FIX(arama): Dart'in toLowerCase() metodu Türkçe'yi bilmez. "IŞIK Belgeseli"
+/// başlığı 'işik' olur, kullanıcının doğal olarak yazdığı "ışık" sorgusu ise
+/// 'ışık' kalır ve hiç eşleşmez: ekranda "Aramanızla eşleşen video bulunamadı"
+/// çıkar, kullanıcı videonun silindiğini sanır. Aynı tuzak "Kılıç" başlığını
+/// "KILIÇ" diye ararken de vurur. Nokta farkı (İ I ı i) tek harfe indirgenir,
+/// ayrıca aksanlı harfler sadeleştirilir ki "ISIK" da "IŞIK"ı bulsun.
+/// Katlama küçültmeden ÖNCE yapılır: 'İ'.toLowerCase() Dart'ta iki kod birimli
+/// 'i̇' (i + birleşen nokta) üretir ve karşılaştırmayı sessizce bozardı.
+const Map<String, String> _trFoldTable = {
+  'İ': 'i', 'I': 'i', 'ı': 'i',
+  'Ş': 's', 'ş': 's',
+  'Ç': 'c', 'ç': 'c',
+  'Ğ': 'g', 'ğ': 'g',
+  'Ö': 'o', 'ö': 'o',
+  'Ü': 'u', 'ü': 'u',
+};
+
+/// Türkçe duyarlı arama katlaması. Hem başlık hem sorgu bu tek fonksiyondan
+/// geçer; iki taraf farklı normalleştirilirse eşleşme yine sessizce kaybolur.
+String trFold(String input) {
+  final buffer = StringBuffer();
+  for (final ch in input.split('')) {
+    buffer.write(_trFoldTable[ch] ?? ch);
+  }
+  return buffer.toString().toLowerCase();
+}
+
 class DownloadsScreen extends StatefulWidget {
   const DownloadsScreen({super.key});
 
@@ -73,12 +100,32 @@ class DownloadsScreenState extends State<DownloadsScreen> {
     });
   }
 
+  /// Bir başlığın arama sorgusuyla eşleşip eşleşmediği. Tek eşleşme kaynağı:
+  /// hem listeyi süzen build hem de seçim temizleyen onChanged buradan geçer.
+  static bool matchesQuery(String title, String query) {
+    if (query.isEmpty) return true;
+    return trFold(title).contains(trFold(query));
+  }
+
+  /// FIX(secim): Eskiden "hepsi seçili mi" sorusu `secili.length == gorunen.length`
+  /// ile ölçülüyordu. Kullanıcı A videosunu seçip aramayla listeyi tek bir B
+  /// videosuna daraltınca 1 == 1 olduğu için üst bar "Seçimi Kaldır" gösteriyor,
+  /// basınca B seçilmiyor A'nın seçimi kalkıyordu. Artık üyelikle ölçülür.
+  static bool areAllSelected(Set<String> selected, Iterable<String> visibleIds) {
+    final visible = visibleIds.toList();
+    if (visible.isEmpty) return false;
+    return visible.every(selected.contains);
+  }
+
   void _toggleSelectAll(List<VideoItem> videos) {
+    final visibleIds = videos.map((v) => v.id).toList();
     setState(() {
-      if (_selectedVideoIds.length == videos.length) {
-        _selectedVideoIds.clear();
+      if (areAllSelected(_selectedVideoIds, visibleIds)) {
+        // Seçimi kaldırırken YALNIZ filtredekiler düşer; ekranda görünmeyen
+        // ama seçili kalmış videoların seçimi burada sessizce silinmemeli.
+        _selectedVideoIds.removeAll(visibleIds);
       } else {
-        _selectedVideoIds.addAll(videos.map((v) => v.id));
+        _selectedVideoIds.addAll(visibleIds);
       }
     });
   }
@@ -113,31 +160,68 @@ class DownloadsScreenState extends State<DownloadsScreen> {
     final idsToDelete = _selectedVideoIds.toList();
     _exitSelectionMode();
 
+    final messenger = ScaffoldMessenger.of(context);
     final deletedCount = await library.bulkMoveToTrash(idsToDelete);
-    if (context.mounted && deletedCount > 0) {
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+    final failedCount = idsToDelete.length - deletedCount;
+
+    // FIX(sessiz-basarisizlik): Eskiden yalnız deletedCount > 0 dalı mesaj
+    // gösteriyordu. İndirme klasörü SD karttayken kart çıkarılmışsa veya izin
+    // düşmüşse moveToTrash hepsi için false döner: seçim modu kapanır, liste
+    // aynen kalır, hiçbir uyarı çıkmazdı. Kullanıcı düğme bozuk sanıp tekrar
+    // tekrar denerdi. Artık tam ve kısmi başarısızlık ayrı ayrı bildirilir.
+    if (deletedCount == 0) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
           content: Text(
-              '🗑️ $deletedCount video Geri Dönüşüm Kutusu\'na taşındı (24 saat sonra silinir).'),
-          duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: 'Geri Al',
-            textColor: const Color(0xFF00E676),
-            onPressed: () {
-              for (final id in idsToDelete) {
-                final match = library.trashedVideos
-                    .where((t) => t.video.id == id)
-                    .firstOrNull;
-                if (match != null) {
-                  library.restoreVideo(match);
-                }
-              }
-            },
-          ),
-        ),
-      );
+              '⚠️ ${idsToDelete.length} videonun hiçbiri Geri Dönüşüm Kutusu\'na taşınamadı. Depolama erişimini kontrol edip tekrar deneyin.'),
+          backgroundColor: AmoledTheme.brandRed,
+          duration: const Duration(seconds: 5),
+        ));
+      return;
     }
+
+    final summary = failedCount > 0
+        ? '🗑️ $deletedCount video Geri Dönüşüm Kutusu\'na taşındı, $failedCount video taşınamadı.'
+        : '🗑️ $deletedCount video Geri Dönüşüm Kutusu\'na taşındı (24 saat sonra silinir).';
+
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(summary),
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'Geri Al',
+          textColor: const Color(0xFF00E676),
+          onPressed: () async {
+            // FIX(geri-al-yarisi): Eskiden N adet restoreVideo await edilmeden
+            // aynı anda başlıyordu. Her biri tam kütüphane taraması yapıp
+            // trash_index.json'u okuyup geri yazdığı için son yazan kazanıyor,
+            // diğerlerinin çıkardığı kayıtlar çöp indeksine geri sızıyordu:
+            // dosya indirme klasörüne dönmüş olmasına rağmen çöp rozeti hâlâ
+            // eski sayıyı gösteriyordu. Sıraya sokup await ediyoruz.
+            int restoreFailed = 0;
+            for (final id in idsToDelete) {
+              final match = library.trashedVideos
+                  .where((t) => t.video.id == id)
+                  .firstOrNull;
+              if (match == null) continue;
+              final ok = await library.restoreVideo(match);
+              if (!ok) restoreFailed++;
+            }
+            if (restoreFailed > 0) {
+              messenger
+                ..hideCurrentSnackBar()
+                ..showSnackBar(SnackBar(
+                  content: Text(
+                      '⚠️ $restoreFailed video geri yüklenemedi, Geri Dönüşüm Kutusu\'nda kaldı.'),
+                  backgroundColor: AmoledTheme.brandRed,
+                  duration: const Duration(seconds: 4),
+                ));
+            }
+          },
+        ),
+      ));
   }
 
   @override
@@ -147,13 +231,10 @@ class DownloadsScreenState extends State<DownloadsScreen> {
 
     final filteredVideos = _searchQuery.isEmpty
         ? allVideos
-        : allVideos
-            .where((v) =>
-                v.title.toLowerCase().contains(_searchQuery.toLowerCase()))
-            .toList();
+        : allVideos.where((v) => matchesQuery(v.title, _searchQuery)).toList();
 
-    final bool isAllSelected = filteredVideos.isNotEmpty &&
-        _selectedVideoIds.length == filteredVideos.length;
+    final bool isAllSelected =
+        areAllSelected(_selectedVideoIds, filteredVideos.map((v) => v.id));
 
     return PopScope(
       canPop: !_isSelectionMode,
@@ -304,8 +385,20 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                           : null,
                     ),
                     onChanged: (val) {
+                      final query = val.trim();
+                      // FIX(secim): Arama daraldığında ekrandan çıkan videoların
+                      // seçimi de düşer. Aksi hâlde kullanıcı yalnız B'yi
+                      // seçtiğini sanırken "Seçilenleri Sil (1)" ekranda hiç
+                      // görünmeyen A videosunu çöpe atıyordu.
+                      final stillVisible = context
+                          .read<LibraryProvider>()
+                          .videos
+                          .where((v) => matchesQuery(v.title, query))
+                          .map((v) => v.id)
+                          .toSet();
                       setState(() {
-                        _searchQuery = val.trim();
+                        _searchQuery = query;
+                        _selectedVideoIds.retainAll(stillVisible);
                       });
                     },
                   ),
@@ -511,31 +604,37 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                                     // mesajı gösterilmez (önceden her
                                     // kaydırmada başarılı mesaj çıkıyor, "Geri
                                     // Al" hayalet kayıt oluşturabiliyordu).
+                                    // FIX(olu-geri-al): Başarı mesajı ve "Geri
+                                    // Al" düğmesi eskiden onDismissed'daydı ama
+                                    // oraya hiç ulaşılmıyordu: deleteVideo
+                                    // notifyListeners çağırınca satır listeden
+                                    // düşüyor, Dismissible ağaçtan kalkıyor ve
+                                    // Flutter mounted kontrolünde durup
+                                    // onDismissed'ı çağırmıyordu. Video çöpe
+                                    // gidiyor, kullanıcı ne onay ne geri alma
+                                    // görüyordu. Geri bildirim confirmDismiss'e
+                                    // taşındı, onDismissed kaldırıldı.
                                     confirmDismiss: (direction) async {
                                       final lib =
                                           context.read<LibraryProvider>();
+                                      final messenger =
+                                          ScaffoldMessenger.of(context);
+                                      final title = video.title;
                                       final success =
                                           await lib.deleteVideo(video);
-                                      if (!success && context.mounted) {
-                                        ScaffoldMessenger.of(context)
+                                      if (!success) {
+                                        messenger
                                           ..hideCurrentSnackBar()
                                           ..showSnackBar(const SnackBar(
                                             content: Text(
                                                 '⚠️ Video Geri Dönüşüm Kutusu\'na taşınamadı. Tekrar deneyin.'),
                                             duration: Duration(seconds: 3),
                                           ));
+                                        return false;
                                       }
-                                      return success;
-                                    },
-                                    onDismissed: (direction) {
-                                      final title = video.title;
-                                      final lib =
-                                          context.read<LibraryProvider>();
-                                      ScaffoldMessenger.of(context)
-                                          .hideCurrentSnackBar();
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        SnackBar(
+                                      messenger
+                                        ..hideCurrentSnackBar()
+                                        ..showSnackBar(SnackBar(
                                           content: Text(
                                               '🗑️ "$title" Geri Dönüşüm Kutusu\'na taşındı (24 saat sonra silinir).'),
                                           duration:
@@ -556,12 +655,23 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                                                         deletedAt:
                                                             DateTime.now()),
                                               );
-                                              await lib
+                                              final restored = await lib
                                                   .restoreVideo(trashed);
+                                              if (!restored) {
+                                                messenger
+                                                  ..hideCurrentSnackBar()
+                                                  ..showSnackBar(
+                                                      const SnackBar(
+                                                    content: Text(
+                                                        '⚠️ Video geri yüklenemedi, Geri Dönüşüm Kutusu\'nda kaldı.'),
+                                                    duration:
+                                                        Duration(seconds: 3),
+                                                  ));
+                                              }
                                             },
                                           ),
-                                        ),
-                                      );
+                                        ));
+                                      return true;
                                     },
                                     child: tileWidget,
                                   );
@@ -578,6 +688,12 @@ class DownloadsScreenState extends State<DownloadsScreen> {
   }
 
   void _showTrashModal(BuildContext context, LibraryProvider library) {
+    // FIX(gorunmez-mesaj): Bu modal içindeki geri bildirimler eskiden
+    // ScaffoldMessenger ile gösteriliyordu. SnackBar ekranın en altında,
+    // yüksekliğin %75'ini kaplayan alt sayfanın ARKASINDA çiziliyor ve 2 saniye
+    // sonra kayboluyordu: kullanıcı hiçbir onay ya da hata görmüyordu. Mesaj
+    // artık sayfanın kendi içinde, listenin üstünde bir bant olarak duruyor.
+    final feedback = ValueNotifier<({String text, bool isError})?>(null);
     showModalBottomSheet(
       context: context,
       backgroundColor: AmoledTheme.pureBlack,
@@ -667,7 +783,14 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                             );
 
                             if (confirm == true) {
-                              await lib.emptyTrash();
+                              final cleared = await lib.emptyTrash();
+                              feedback.value = cleared
+                                  ? null
+                                  : (
+                                      text:
+                                          '⚠️ Geri Dönüşüm Kutusu temizlenemedi. Depolama erişimini kontrol edin.',
+                                      isError: true
+                                    );
                             }
                           },
                         ),
@@ -680,6 +803,29 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                       color: AmoledTheme.subText,
                       fontSize: 12,
                     ),
+                  ),
+                  ValueListenableBuilder<({String text, bool isError})?>(
+                    valueListenable: feedback,
+                    builder: (_, value, _) {
+                      if (value == null) return const SizedBox.shrink();
+                      final color = value.isError
+                          ? const Color(0xFFFF5252)
+                          : const Color(0xFF00E676);
+                      return Container(
+                        margin: const EdgeInsets.only(top: 10),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: color.withValues(alpha: 0.5)),
+                        ),
+                        child: Text(
+                          value.text,
+                          style: TextStyle(color: color, fontSize: 12),
+                        ),
+                      );
+                    },
                   ),
                   const SizedBox(height: 12),
                   const Divider(color: AmoledTheme.borderDark, height: 1),
@@ -725,10 +871,23 @@ class DownloadsScreenState extends State<DownloadsScreen> {
                                         width: 56,
                                         height: 42,
                                         color: AmoledTheme.cardDark,
+                                        // FIX(bozuk-kucukresim): existsSync
+                                        // dosyanın VAR olduğunu söyler, OKUNUR
+                                        // veya geçerli bir görsel olduğunu
+                                        // değil. Yarım yazılmış ya da bozulmuş
+                                        // bir jpg'de Image.file kırmızı hata
+                                        // kutusu çiziyordu; artık video_tile
+                                        // ile aynı yedek ikona düşer.
                                         child: hasThumb
                                             ? Image.file(
                                                 File(video.thumbnailPath!),
                                                 fit: BoxFit.cover,
+                                                errorBuilder:
+                                                    (_, _, _) => const Icon(
+                                                  Icons.movie_outlined,
+                                                  color: AmoledTheme.subText,
+                                                  size: 20,
+                                                ),
                                               )
                                             : const Icon(
                                                 Icons.movie_outlined,

@@ -9,6 +9,7 @@ import '../../services/youtube_api_service.dart';
 import '../../services/native_bridge.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
+import 'youtube_login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -21,6 +22,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _isUpdatingYtDlp = false;
   bool _isIgnoringBatteryOpt = true;
   String _versionInfo = 'Offline YouTube';
+
+  // FIX(kota-suruklemesi): Kaydırıcının sürükleme sırasındaki ARA değeri.
+  // Her ara değer ayarı diske yazıp kuyruk motorunu uyandırıyordu: 100 GB'dan
+  // 1 GB'a sürüklerken kotanın altına düşen her tick sıradaki kuyruk görevini
+  // "Depolama kotası doldu" hatasına çeviriyordu (isProcessingQueue yalnız eş
+  // zamanlı çağrıyı eler, ardışık olanları değil). Kaydırıcı 100 GB'a geri
+  // alınsa bile hataya düşen görevler kendiliğinden geri gelmiyordu.
+  // Yazma artık yalnız parmak kalkınca (onChangeEnd) yapılır.
+  double? _storageSliderDraft;
+  double? _durationSliderDraft;
 
   @override
   void initState() {
@@ -92,6 +103,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final isOnlyWifi =
         settings.networkMode == NetworkRestrictionMode.anyWifi;
+
+    // Sürükleme sürerken göstergeler taslak değeri gösterir, kayıtlı ayar
+    // değişmez; parmak kalkınca ikisi tekrar tek kaynağa döner.
+    final double storageSliderValue = _storageSliderDraft ??
+        settings.maxStorageLimitGB.toDouble().clamp(1.0, 100.0);
+    final int storageLimitGB = storageSliderValue.round();
+    final double durationSliderValue = _durationSliderDraft ??
+        settings.maxVideoDurationHours.toDouble().clamp(1.0, 24.0);
+    final int durationLimitHours = durationSliderValue.round();
 
     return Scaffold(
       appBar: AppBar(
@@ -228,6 +248,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
+            // 1.7 YouTube Oturumu (çerez hattı)
+            // FIX(cerez-hatti): Bu ekran hiçbir yerden açılmıyordu; WebView giriş
+            // ekranı ve onu tüketen native --cookies hattı ölü koddu. Yaş kısıtlı
+            // veya üye özel bir videoda yt-dlp bot doğrulaması isteyince kullanıcıya
+            // yalnızca "motoru güncelleyin" deniyor, gerçek çözüm olan YouTube
+            // oturumuna ulaşmanın hiçbir yolu bulunmuyordu.
+            AmoledCard(
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AmoledTheme.brandRed.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.lock_open_rounded,
+                    color: AmoledTheme.brandRed,
+                    size: 20,
+                  ),
+                ),
+                title: const Text(
+                  'YouTube\'a Giriş Yap',
+                  style: TextStyle(
+                    color: AmoledTheme.pureWhite,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: const Text(
+                  'Yaş kısıtlı, üye özel ve bot doğrulaması isteyen videolar için oturum çerezlerini indirme motoruna aktarır. Google Hesabı bağlamaktan farklıdır; o yalnız YouTube tarafındaki silme içindir.',
+                  style: TextStyle(color: AmoledTheme.subText, fontSize: 11),
+                ),
+                trailing:
+                    const Icon(Icons.chevron_right, color: AmoledTheme.subText),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const YoutubeLoginScreen(),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+
             // 2. Depolama Kotası
             AmoledCard(
               child: Column(
@@ -260,7 +326,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    'Mevcut Kullanım: ${libraryProvider.formattedTotalUsed} / ${settings.maxStorageLimitGB} GB',
+                    'Mevcut Kullanım: ${libraryProvider.formattedTotalUsed} / $storageLimitGB GB',
                     style: const TextStyle(color: AmoledTheme.subText, fontSize: 13),
                   ),
                   const SizedBox(height: 12),
@@ -272,7 +338,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: TextStyle(color: AmoledTheme.pureWhite, fontSize: 13),
                       ),
                       Text(
-                        '${settings.maxStorageLimitGB} GB',
+                        '$storageLimitGB GB',
                         style: const TextStyle(
                           color: AmoledTheme.brandRed,
                           fontWeight: FontWeight.bold,
@@ -282,13 +348,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   Slider(
-                    value: settings.maxStorageLimitGB.toDouble().clamp(1.0, 100.0),
+                    value: storageSliderValue,
                     min: 1.0,
                     max: 100.0,
                     divisions: 99,
-                    label: '${settings.maxStorageLimitGB} GB',
+                    label: '$storageLimitGB GB',
                     onChanged: (val) {
-                      settingsProvider.updateStorageLimit(val.toInt());
+                      setState(() {
+                        _storageSliderDraft = val;
+                      });
+                    },
+                    onChangeEnd: (val) {
+                      settingsProvider.updateStorageLimit(val.round()).then((_) {
+                        if (mounted) {
+                          setState(() {
+                            _storageSliderDraft = null;
+                          });
+                        }
+                      });
                     },
                   ),
                   const Text(
@@ -339,7 +416,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: TextStyle(color: AmoledTheme.pureWhite, fontSize: 13),
                       ),
                       Text(
-                        '${libraryProvider.formattedTotalDuration} / ${settings.maxVideoDurationHours} Saat',
+                        '${libraryProvider.formattedTotalDuration} / $durationLimitHours Saat',
                         style: const TextStyle(
                           color: AmoledTheme.brandRed,
                           fontWeight: FontWeight.bold,
@@ -349,15 +426,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                   Slider(
-                    value: settings.maxVideoDurationHours
-                        .toDouble()
-                        .clamp(1.0, 24.0),
+                    value: durationSliderValue,
                     min: 1.0,
                     max: 24.0,
                     divisions: 23,
-                    label: '${settings.maxVideoDurationHours} Saat',
+                    label: '$durationLimitHours Saat',
                     onChanged: (val) {
-                      settingsProvider.updateMaxVideoDuration(val.toInt());
+                      setState(() {
+                        _durationSliderDraft = val;
+                      });
+                    },
+                    onChangeEnd: (val) {
+                      settingsProvider.updateMaxVideoDuration(val.round()).then((_) {
+                        if (mounted) {
+                          setState(() {
+                            _durationSliderDraft = null;
+                          });
+                        }
+                      });
                     },
                   ),
                   const Text(
@@ -381,7 +467,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         decoration: BoxDecoration(
                           color: isOnlyWifi
                               ? AmoledTheme.brandRed.withValues(alpha: 0.15)
-                              : const Color(0xFF1E1E1E),
+                              : AmoledTheme.accentGray,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Icon(
@@ -413,7 +499,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: BoxDecoration(
                         color: isOnlyWifi
                             ? AmoledTheme.brandRed.withValues(alpha: 0.2)
-                            : const Color(0xFF1E1E1E),
+                            : AmoledTheme.accentGray,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: isOnlyWifi
@@ -471,7 +557,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       decoration: BoxDecoration(
                         color: settings.playlistReverseOrder
                             ? AmoledTheme.brandRed.withValues(alpha: 0.2)
-                            : const Color(0xFF1E1E1E),
+                            : AmoledTheme.accentGray,
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
                           color: settings.playlistReverseOrder
@@ -654,10 +740,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
+                  const Text(
                     'AMOLED UI • Türkçe Altyazı • 2X Dokun & Hızlandır',
                     style: TextStyle(
-                      color: AmoledTheme.subText.withValues(alpha: 0.5),
+                      // FIX(kontrast): %50 saydamlık saf siyah üzerinde efektif
+                      // #555555 veriyordu, kontrast 2.82:1 (WCAG AA küçük metin
+                      // eşiği 4.5:1). Token doğrudan kullanılınca 9.0:1 olur.
+                      color: AmoledTheme.subText,
                       fontSize: 11,
                     ),
                   ),

@@ -33,7 +33,11 @@ class DownloadForegroundService : Service() {
 
         const val ACTION_START = "com.offlineyoutube.START_DOWNLOAD"
         const val ACTION_PAUSE = "com.offlineyoutube.PAUSE_DOWNLOAD"
-        const val ACTION_RESUME = "com.offlineyoutube.RESUME_DOWNLOAD"
+        // NOT: Eski "ACTION_RESUME" kaldırıldı — hiçbir gönderen kalmamıştı
+        // (MainActivity'deki "resumeDownload" handler'ı ve Dart karşılığı daha
+        // önce silindi; devam etme aynı taskId ile ACTION_START üzerinden
+        // yapılıyor, yt-dlp --continue ile kaldığı yerden sürüyor). Servis
+        // exported="false" olduğu için dışarıdan da gelemezdi.
         const val ACTION_CANCEL = "com.offlineyoutube.CANCEL_DOWNLOAD"
         const val ACTION_STOP_SERVICE = "com.offlineyoutube.STOP_SERVICE"
 
@@ -41,6 +45,11 @@ class DownloadForegroundService : Service() {
         const val EXTRA_URL = "extra_url"
         const val EXTRA_TITLE = "extra_title"
         const val EXTRA_OUTPUT_PATH = "extra_output_path"
+
+        // FIX(wakelock): Aynı emniyet tavanı iki yerde iki farklı biçimde
+        // yazılmıştı; reAcquireLocksIfDropped süresiz kilit alıyordu (bkz. orada).
+        // Tek sabit: kural bir daha ayrışmasın.
+        private const val WAKELOCK_TIMEOUT_MS = 30 * 60 * 1000L
 
         // Event listener for Flutter
         // FIX(visibility): IO thread'lerinde okunuyor, MainActivity main
@@ -55,9 +64,12 @@ class DownloadForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private val activeDownloadJobs = ConcurrentHashMap<String, Job>()
-    private val taskTitles = ConcurrentHashMap<String, String>()
-    private val taskUrls = ConcurrentHashMap<String, String>()
-    private val taskOutputs = ConcurrentHashMap<String, String>()
+    // NOT: Eski taskTitles / taskUrls / taskOutputs haritaları kaldırıldı. Üçü de
+    // yalnızca YAZILIYORDU, tek bir okuma noktası yoktu; "servis yeniden başlarken
+    // görevleri kendi başına sürdürebilir" izlenimi veriyor ama süreç ölünce
+    // haritalar da öldüğü için hiçbir şey sürdüremiyordu. Yeniden başlatma yolunda
+    // (intent == null) tek doğruluk kaynağı Dart kuyruğudur: 30 saniyelik pencerede
+    // Flutter bağlanıp görevleri yeniden gönderir, göndermezse servis kapanır.
     private var idleTimeoutJob: Job? = null
 
     override fun onCreate() {
@@ -98,15 +110,11 @@ class DownloadForegroundService : Service() {
         val outputPath = intent.getStringExtra(EXTRA_OUTPUT_PATH) ?: ""
 
         when (action) {
-            ACTION_START, ACTION_RESUME -> {
+            ACTION_START -> {
                 // Cancel pending idle shutdown timer
                 idleTimeoutJob?.cancel()
                 idleTimeoutJob = null
 
-                taskTitles[taskId] = title
-                taskUrls[taskId] = url
-                taskOutputs[taskId] = outputPath
-                
                 startInForeground(
                     buildNotification(
                         title = "Offline YouTube",
@@ -177,14 +185,8 @@ class DownloadForegroundService : Service() {
                 onProgress = { progress, eta, speed, totalSize, downloadedSize ->
                     // FIX(wakelock): 30 dk'lık timeout'lı wake lock uzun
                     // indirmelerde erken serbest kalıyordu; her progress'te
-                    // tutulmuyorsa yeniden al (99%+ wifi lock bilinçli
-                    // bırakıldıysa geri alma).
-                    reAcquireLocksIfDropped(progress)
-
-                    // If download is near completion / post-processing, release WifiLock early to cool RF modem
-                    if (progress >= 99f) {
-                        releaseWifiLockOnly()
-                    }
+                    // tutulmuyorsa yeniden al.
+                    reAcquireLocksIfDropped()
 
                     val now = System.currentTimeMillis()
                     if (progress >= 100f || now - lastNotificationTime >= 1000L) {
@@ -256,9 +258,6 @@ class DownloadForegroundService : Service() {
         activeDownloadJobs[taskId]?.cancel()
         activeDownloadJobs.remove(taskId)
         YtDlpNativeManager.stopDownload(taskId)
-        taskTitles.remove(taskId)
-        taskUrls.remove(taskId)
-        taskOutputs.remove(taskId)
         emitEvent(mapOf(
             "taskId" to taskId,
             "type" to "cancelled"
@@ -371,7 +370,14 @@ class DownloadForegroundService : Service() {
         progress: Int,
         indeterminate: Boolean
     ): Notification {
+        // FIX(bildirim): getLaunchIntentForPackage null dönebilir (bazı OEM
+        // başlatıcılarında ve paket yöneticisi sorgusu başarısızken olur);
+        // PendingIntent.getActivity'ye null intent vermek NullPointerException
+        // fırlatıp bildirimi kurmayı, dolayısıyla startForeground'ı düşürüyordu.
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?: Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
         val pendingIntent = PendingIntent.getActivity(
             this, 0, launchIntent,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT else PendingIntent.FLAG_UPDATE_CURRENT
@@ -398,7 +404,7 @@ class DownloadForegroundService : Service() {
                 }
             }
             if (wakeLock?.isHeld != true) {
-                wakeLock?.acquire(30 * 60 * 1000L) // 30 mins safety max
+                wakeLock?.acquire(WAKELOCK_TIMEOUT_MS)
             }
         } catch (e: Exception) {
             Log.e(TAG, "WakeLock acquire error: ${e.message}")
@@ -406,6 +412,12 @@ class DownloadForegroundService : Service() {
 
         try {
             if (wifiLock == null) {
+                // DİKKAT (ölçülmüş sınır): WIFI_MODE_FULL API 29'dan beri
+                // kullanımdan kaldırıldı ve o sürümden sonra hiçbir etkisi yoktur;
+                // sistem, ağ kullanan uygulamalar için Wi-Fi'yi zaten açık tutar.
+                // Kilit yalnızca API 24-28 cihazlarda (ekran kapalıyken Wi-Fi'nin
+                // uykuya girmesini engellemek için) gerçek iş yapar. Kod okuyan
+                // biri buna dayanıp ek termal önlem almayı ertelemesin.
                 val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                 wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL, "offlineyoutube:download_wifilock").apply {
                     setReferenceCounted(false)
@@ -424,7 +436,7 @@ class DownloadForegroundService : Service() {
             wifiLock?.let {
                 if (it.isHeld) {
                     it.release()
-                    Log.i(TAG, "WifiLock released early for modem thermal cooling.")
+                    Log.i(TAG, "WifiLock bırakıldı: kalan adım (merge) ağ kullanmıyor.")
                 }
             }
         } catch (e: Exception) {
@@ -436,17 +448,28 @@ class DownloadForegroundService : Service() {
     // çağrılıyordu; 30 dk'lık timeout sonrası kilitsiz geçen uzun indirmeler
     // Doze altında kesilebiliyordu. Progress callback bu metodu her çağrışta
     // düşen kilitleri yeniden alır.
-    private fun reAcquireLocksIfDropped(progress: Float) {
+    //
+    // FIX(kilit): "%99'u geçince WifiLock'u modem termal soğutması için erken
+    // bırak" dalı kaldırıldı. Ölçülebilir bir kazancı yoktu (WIFI_MODE_FULL API
+    // 29+ zaten no-op) ve yüzde artık çağrılar arasında monoton olduğu için
+    // (bkz. YtDlpNativeManager) eşik VİDEO akışının sonunda aşılıyor: ses akışı
+    // hâlâ inerken, yani ağ hâlâ gerekliyken kilit bırakılmış oluyordu.
+    // Kilitler görev bitince releaseLocksIfIdle ile zaten bırakılıyor.
+    private fun reAcquireLocksIfDropped() {
         try {
             if (wakeLock?.isHeld != true) {
-                wakeLock?.acquire()
+                // FIX(wakelock): Burada süre verilmiyordu. 30 dakikalık tavan
+                // dolduğunda ilk ilerleme geri çağrısı SÜRESİZ bir
+                // PARTIAL_WAKE_LOCK alıyordu; ardından yt-dlp süreci asılı kalıp
+                // (yarı açık TCP bağlantısında bloke) ne progress ne onComplete
+                // üretmezse releaseLocksIfIdle hiç çalışmıyor, cihaz Doze'a hiç
+                // girmiyor ve pil gece boyunca boşalıyordu.
+                wakeLock?.acquire(WAKELOCK_TIMEOUT_MS)
             }
         } catch (e: Exception) {
             Log.e(TAG, "WakeLock re-acquire error: ${e.message}")
         }
-        // WifiLock 99%+ iken termal soğutma için bilinçli bırakıldı; altına
-        // düşüldüyse geri al.
-        if (progress < 99f && wifiLock?.isHeld != true) {
+        if (wifiLock?.isHeld != true) {
             try {
                 wifiLock?.acquire()
             } catch (e: Exception) {

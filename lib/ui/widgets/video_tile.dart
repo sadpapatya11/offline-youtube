@@ -24,16 +24,30 @@ class VideoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasLocalThumb = video.thumbnailPath != null &&
-        video.thumbnailPath!.isNotEmpty &&
-        File(video.thumbnailPath!).existsSync();
+    // FIX(build-io): build'in ilk satırı her karede senkron bir File.existsSync
+    // çağrısıydı. Arama kutusuna sekiz harf yazmak, ekrandaki her kart için ayrı
+    // bir disk stat'i demekti; yavaş depolamalı cihazda yazarken ve hızlı
+    // kaydırırken görünür takılma oluşuyordu. Dosyanın okunup okunamadığını
+    // zaten Image.file'ın errorBuilder'ı bildiriyor, o yüzden build artık diske
+    // hiç dokunmuyor.
+    final hasThumbPath =
+        video.thumbnailPath != null && video.thumbnailPath!.isNotEmpty;
+
+    // Küçük resmin kod çözme genişliği (cihaz pikseli). Ölçülemediği bir anda
+    // (genişlik sıfır) uydurma bir sayı koymuyoruz: cacheWidth sıfır olursa
+    // Image.file assert atar, o yüzden sınır tamamen kalkar ve kaynak kendi
+    // boyutuyla çözülür.
+    final decodeWidthPx = (MediaQuery.sizeOf(context).width *
+            MediaQuery.devicePixelRatioOf(context))
+        .round();
+    final thumbCacheWidth = decodeWidthPx > 0 ? decodeWidthPx : null;
 
     final hasDuration =
         video.durationSeconds != null && video.durationSeconds! > 0;
     final hasUploader =
         video.uploader != null && video.uploader!.isNotEmpty;
 
-    return AmoledCard(
+    final card = AmoledCard(
       onTap: onTap,
       onLongPress: onLongPress,
       padding: EdgeInsets.zero,
@@ -50,38 +64,31 @@ class VideoTile extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (hasLocalThumb)
+                // FIX(fallback): Yer tutucu artık her zaman en altta duruyor.
+                // Eskiden "dosya yok" dalı 0xFF141414, errorBuilder dalı ise
+                // AmoledTheme.cardDark çiziyordu; aynı eksik küçük resim, hangi
+                // yoldan gelindiğine göre iki farklı arka planla görünüyordu.
+                // Altta durması ayrıca kod çözme tamamlanana kadar boş kare
+                // görünmesini de engelliyor.
+                const _ThumbnailPlaceholder(),
+                if (hasThumbPath)
                   ClipRRect(
                     borderRadius:
                         const BorderRadius.vertical(top: Radius.circular(14)),
                     child: Image.file(
                       File(video.thumbnailPath!),
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        color: AmoledTheme.cardDark,
-                        child: const Center(
-                          child: Icon(
-                            Icons.play_circle_outline_rounded,
-                            color: AmoledTheme.subText,
-                            size: 48,
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                else
-                  Container(
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF141414),
-                      borderRadius:
-                          BorderRadius.vertical(top: Radius.circular(14)),
-                    ),
-                    child: const Center(
-                      child: Icon(
-                        Icons.play_circle_outline_rounded,
-                        color: AmoledTheme.subText,
-                        size: 48,
-                      ),
+                      // FIX(bellek): yt-dlp'nin bıraktığı küçük resim tipik
+                      // olarak 1280x720 ve çözülmüş kare tamponu yaklaşık
+                      // 3.5 MB. Otuz videoluk bir kütüphanede kaydırırken
+                      // ImageCache'in 100 MB'lık varsayılan sınırı doluyor,
+                      // düşük bellekli cihazda kare atlamalarına yol açıyordu.
+                      // Kart en fazla ekran genişliği kadar yer kapladığı için
+                      // kod çözmeyi o boyutla sınırlıyoruz (kaynak daha küçükse
+                      // Flutter büyütme yapmaz, hedefi kaynağa kırpar).
+                      cacheWidth: thumbCacheWidth,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const SizedBox.shrink(),
                     ),
                   ),
 
@@ -260,8 +267,17 @@ class VideoTile extends StatelessWidget {
                 
                 // YouTube Linki (Standart)
                 const SizedBox(height: 6),
+                // FIX(secim): Seçim modunda bağlantı satırına denk gelen dokunuş
+                // videoyu seçmek yerine uygulamayı arka plana atıp YouTube'u
+                // açıyordu. Kullanıcı on iki video seçerken akışı kesiliyor, geri
+                // döndüğünde o video seçilmemiş oluyordu; aynı noktada uzun basmak
+                // ise dıştaki karta düştüğü için çalışıyordu, yani davranış
+                // tutarsızdı. onTap seçim modunda null olunca dokunuş dıştaki
+                // AmoledCard'a geçer ve seçimi değiştirir.
                 InkWell(
-                  onTap: (video.sourceUrl != null && video.sourceUrl!.isNotEmpty)
+                  onTap: (!isSelectionMode &&
+                          video.sourceUrl != null &&
+                          video.sourceUrl!.isNotEmpty)
                       ? () async {
                           final url = Uri.parse(video.sourceUrl!);
                           try {
@@ -320,6 +336,47 @@ class VideoTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+
+    // FIX(erisilebilirlik): Seçim durumu ekranda yalnızca yeşil çerçeve ve onay
+    // simgesiyle anlatılıyordu, erişilebilirlik ağacına ise hiç yazılmıyordu
+    // (projede tek bir Semantics düğümü yoktu). TalkBack açık bir kullanıcı on
+    // iki videoyu işaretlerken kartlar arasında gezinip hangisinin seçili
+    // olduğunu duyamıyor, yanlış videoyu silme riskiyle ilerliyordu. Kart seçim
+    // modunda tek bir düğüm olarak birleştirilip seçili bayrağını taşıyor.
+    // Birleştirme yalnızca seçim modunda yapılıyor: normal modda bağlantı
+    // satırının kendi dokunma eylemi var, onu tek düğüme eritmek ekran okuyucu
+    // kullanıcısından YouTube bağlantısını gizlerdi.
+    if (!isSelectionMode) return card;
+    return MergeSemantics(
+      child: Semantics(
+        selected: isSelected,
+        child: card,
+      ),
+    );
+  }
+}
+
+/// Küçük resmin çizilemediği her durumda (yol yok, dosya silinmiş, kod çözme
+/// hatası) kullanılan tek yer tutucu. Tek kaynak olması, kartın hangi yoldan
+/// gelinirse gelinsin aynı görünmesini garanti eder.
+class _ThumbnailPlaceholder extends StatelessWidget {
+  const _ThumbnailPlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Color(0xFF141414),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+      ),
+      child: const Center(
+        child: Icon(
+          Icons.play_circle_outline_rounded,
+          color: AmoledTheme.subText,
+          size: 48,
+        ),
       ),
     );
   }

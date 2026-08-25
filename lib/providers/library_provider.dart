@@ -10,7 +10,13 @@ class LibraryProvider extends ChangeNotifier {
   int _totalUsedBytes = 0;
   bool _isLoading = false;
 
-  List<VideoItem> get videos => _videos;
+  /// Kütüphane listesinin DEĞİŞTİRİLEMEZ anlık görüntüsü.
+  ///
+  /// İç liste doğrudan verildiğinde ekran ile veri aynı örneği paylaşıyordu: toplu
+  /// silme dosya taşıma hızında ilerlerken liste yerinde kırpılıyor, ListView ise
+  /// hâlâ eski `itemCount` ile satır kurmaya çalışıp `RangeError` fırlatıyordu.
+  /// Kopya döndürmek build sırasında sabit bir görüntü garanti eder.
+  List<VideoItem> get videos => List.unmodifiable(_videos);
   List<TrashedVideoItem> get trashedVideos => _trashedVideos;
   int get totalUsedBytes => _totalUsedBytes;
   bool get isLoading => _isLoading;
@@ -105,7 +111,10 @@ class LibraryProvider extends ChangeNotifier {
     return false;
   }
 
-  /// Birden fazla videoyu topluca Geri Dönüşüm Kutusuna taşır
+  /// Birden fazla videoyu topluca Geri Dönüşüm Kutusuna taşır.
+  ///
+  /// Dönen sayı BAŞARIYLA taşınanları verir; çağıran taraf istenen sayı ile
+  /// karşılaştırıp kısmi başarısızlığı kullanıcıya bildirir.
   Future<int> bulkMoveToTrash(List<String> videoIds) async {
     int deletedCount = 0;
     for (final id in videoIds) {
@@ -116,6 +125,11 @@ class LibraryProvider extends ChangeNotifier {
           // Toplu çöpe atmada da YouTube tarafına dokunulmaz; gerekçe deleteVideo ile aynı.
           _videos.removeWhere((v) => v.id == id);
           deletedCount++;
+          // Her taşımadan sonra bildir: tek toplu bildirimde 40 videoluk silme
+          // dosya taşıma hızında saniyeler sürüyor ve bu süre boyunca ekrandaki
+          // liste gerçek veriden ayrışıyordu; kullanıcı bu sırada kaydırdığında
+          // artık var olmayan satırlar isteniyordu.
+          notifyListeners();
         }
       }
     }

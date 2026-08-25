@@ -114,14 +114,41 @@ class VideoItem {
         'uploadDate': uploadDate,
       };
 
+  /// Sayısal alanı gösterimden bağımsız okur.
+  ///
+  /// `as int?` cast'i kayıtta double duran bir değerde (`12345.0`, eski sürüm
+  /// verisi ya da başka bir yazıcı) TypeError fırlatıyordu. Bu istisna tek bir
+  /// kaydı değil, çöp indeksinin TAMAMINI düşürüyor: StorageManager.loadTrashIndex
+  /// listeyi tek `map` ile çözüyor ve hata yakalanınca boş liste dönüyor, yani
+  /// kullanıcının çöpteki 50 videosu birden görünmez oluyordu.
+  static int? _toIntOrNull(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v);
+    return null;
+  }
+
+  /// Bozuk tarih tüm indeksi düşürmesin diye tolere edilir.
+  ///
+  /// Uydurma yapılmaz: çözülemeyen tarih "bilinmiyor" anlamında epoch olur,
+  /// böylece kayıt en eski gibi sıralanır. `DateTime.now()` dönmek kaydı taze
+  /// göstererek sıralamayı ve tarih rozetini yalanlardı.
+  static DateTime _toDate(dynamic v) {
+    if (v is String) {
+      final parsed = DateTime.tryParse(v);
+      if (parsed != null) return parsed;
+    }
+    return DateTime.fromMillisecondsSinceEpoch(0);
+  }
+
   factory VideoItem.fromJson(Map<String, dynamic> json) => VideoItem(
         id: json['id'] as String,
         title: json['title'] as String,
         filePath: json['filePath'] as String,
-        fileSizeBytes: json['fileSizeBytes'] as int? ?? 0,
-        durationSeconds: json['durationSeconds'] as int?,
+        fileSizeBytes: _toIntOrNull(json['fileSizeBytes']) ?? 0,
+        durationSeconds: _toIntOrNull(json['durationSeconds']),
         uploader: json['uploader'] as String?,
-        downloadedAt: DateTime.parse(json['downloadedAt'] as String),
+        downloadedAt: _toDate(json['downloadedAt']),
         thumbnailPath: json['thumbnailPath'] as String?,
         subtitlePath: json['subtitlePath'] as String?,
         sourceUrl: json['sourceUrl'] as String?,

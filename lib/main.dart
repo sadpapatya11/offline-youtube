@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'models/app_settings.dart';
 import 'providers/download_provider.dart';
 import 'providers/library_provider.dart';
 import 'providers/settings_provider.dart';
@@ -27,13 +28,31 @@ void main() async {
   runApp(const OfflineYoutubeApp());
 }
 
-class OfflineYoutubeApp extends StatelessWidget {
+class OfflineYoutubeApp extends StatefulWidget {
   const OfflineYoutubeApp({super.key});
 
+  @override
+  State<OfflineYoutubeApp> createState() => _OfflineYoutubeAppState();
+}
+
+class _OfflineYoutubeAppState extends State<OfflineYoutubeApp> {
   // FIX(startup-race): Ayarların "yükleniyor -> yüklendi" geçişini izlemek
   // için önceki durumu hatırlar (indirme klasörü ancak ayar yüklemesi
-  // tamamlanınca oluşturuluyor). StatelessWidget içinde static olmalı.
-  static bool _lastSettingsLoading = true;
+  // tamamlanınca oluşturuluyor).
+  //
+  // Bu alan eskiden StatelessWidget içinde static'ti: uygulama aynı süreçte
+  // ikinci kez ayağa kalktığında (widget testlerinde art arda pumpWidget)
+  // bayat "false" değeri kalıyor, ayar yüklemesi bitse bile kütüphane bir daha
+  // hiç taranmıyordu. State alanı her örnekte sıfırdan başlar.
+  bool _lastSettingsLoading = true;
+
+  // En son UYGULANAN ayarlar. update her SettingsProvider VEYA LibraryProvider
+  // bildiriminde koşuyor; koşulsuz onSettingsChanged çağrısı her indirme
+  // bitişinde processNextQueue'yu, o da getUsedStorageBytes + scanDownloadedVideos
+  // ile iki tam disk taramasını tetikliyordu. 300 videoluk kütüphanede arayüz
+  // takılıyordu. Kuyruk gerçekten durmaz: ağ değişimi, görev ekleme, uygulamaya
+  // dönüş ve tamamlanma yollarının hepsi processNextQueue'yu ayrıca çağırıyor.
+  AppSettings? _appliedSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -55,7 +74,11 @@ class OfflineYoutubeApp extends StatelessWidget {
               libraryProvider.refresh();
             }
             if (!settingsProvider.isLoading) {
-              provider.onSettingsChanged(settingsProvider.settings);
+              final settings = settingsProvider.settings;
+              if (_appliedSettings != settings) {
+                _appliedSettings = settings;
+                provider.onSettingsChanged(settings);
+              }
             }
             return provider;
           },

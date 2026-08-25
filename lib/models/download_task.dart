@@ -118,15 +118,11 @@ class DownloadTask {
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
 
-    // 4. Süreye göre yaklaşık dosya boyutu tahmini (~1.8 MB/dakika)
-    if (durationSeconds != null && durationSeconds! > 0) {
-      final estimatedMB = (durationSeconds! / 60) * 1.8;
-      if (estimatedMB >= 1024) {
-        return '~${(estimatedMB / 1024).toStringAsFixed(2)} GB';
-      }
-      return '~${estimatedMB.toStringAsFixed(1)} MB';
-    }
-
+    // 4. Boyut BİLİNMİYORSA uydurulmaz, boş döner.
+    // Buradaki eski "süreye göre ~1.8 MB/dakika" tahmini 30 dakikalık 1080p bir
+    // videoya "~54.0 MB" yazıyordu; dosya gerçekte ~1 GB geliyor. Kullanıcı 20 GB
+    // kotasını bu uydurma sayıya göre planlayıp kotayı beklenmedik anda dolduruyordu.
+    // PlaylistEntry ile aynı kural: ölçülemeyen değer gösterilmez.
     return '';
   }
 
@@ -165,6 +161,9 @@ class DownloadTask {
       totalSize: totalSize ?? this.totalSize,
       downloadedSize: downloadedSize ?? this.downloadedSize,
       retryCount: retryCount ?? this.retryCount,
+      // Kaynak liste kopyada da taşınmalı: düşerse görev "elle eklenmiş tek video"
+      // gibi görünür ve syncSavedPlaylists onu artık listeden çıkarılmış saymaz.
+      sourcePlaylistUrl: sourcePlaylistUrl,
       createdAt: createdAt,
     );
   }

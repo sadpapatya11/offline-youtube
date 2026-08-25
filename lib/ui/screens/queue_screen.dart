@@ -25,6 +25,12 @@ class QueueScreen extends StatefulWidget {
 }
 
 class QueueScreenState extends State<QueueScreen> with SingleTickerProviderStateMixin {
+  // Uyarı bandı renkleri. AmoledTheme'de karşılığı yok; sihirli literal
+  // gömmemek için sınıf düzeyinde adlandırıldı.
+  static const Color _noticeBackground = Color(0xFF2A1F00);
+  static const Color _noticeBorder = Color(0xFFFFB300);
+  static const Color _noticeText = Color(0xFFFFD54F);
+
   final ScrollController _scrollController = ScrollController();
   QueueFilter _selectedFilter = QueueFilter.all;
 
@@ -86,6 +92,99 @@ class QueueScreenState extends State<QueueScreen> with SingleTickerProviderState
         curve: Curves.easeOutCubic,
       );
     }
+  }
+
+  /// Kuyruğun SESSİZCE durduğu ve açılışta kayıt düştüğü durumları gösterir.
+  ///
+  /// Bu bandın olmaması gerçek bir kayıptı: geçici engelde (ağ izni yok, kota
+  /// ölçülemedi, ön plan servisi reddetti) kuyruk motoru artık görevi hataya
+  /// düşürmüyor, `queued` bırakıp nedeni yayınlıyor. Neden hiçbir yerde
+  /// gösterilmeyince kullanıcı yalnız "hiçbir şey inmiyor" görüyor, kırmızı
+  /// bir hata satırı bile çıkmıyordu. Sinyalin tüketicisi burasıdır.
+  Widget _buildQueueNoticeBanner(DownloadProvider provider) {
+    final List<Widget> notices = [];
+
+    // Engel nedeni yalnız BEKLEYEN iş varken gösterilir: kuyruk boşken soğuk
+    // açılışta "Ayarlar henüz yüklenmedi" gibi geçici bir neden yazılıyor ve
+    // kullanıcıya olmayan bir sorun bildiriliyordu.
+    final hasPendingWork =
+        provider.tasks.any((t) => t.status == DownloadStatus.queued);
+    final blockReason = provider.blockReason;
+    if (hasPendingWork && blockReason != null && blockReason.isNotEmpty) {
+      notices.add(_buildNoticeRow(
+        icon: Icons.pause_circle_filled_rounded,
+        text: blockReason,
+      ));
+    }
+
+    if (provider.queueRecordUnreadable) {
+      if (notices.isNotEmpty) notices.add(const SizedBox(height: 8));
+      notices.add(_buildNoticeRow(
+        icon: Icons.error_outline_rounded,
+        text: 'Kayıtlı kuyruk okunamadı ve sıfırdan başlatıldı. '
+            'İndirmelerinizi yeniden eklemeniz gerekiyor.',
+        onDismiss: provider.acknowledgeQueueLoadNotice,
+      ));
+    } else if (provider.droppedTaskCount > 0) {
+      if (notices.isNotEmpty) notices.add(const SizedBox(height: 8));
+      notices.add(_buildNoticeRow(
+        icon: Icons.warning_amber_rounded,
+        text: '${provider.droppedTaskCount} görev kaydı okunamadığı için '
+            'kuyruktan düştü. Bu videoları yeniden eklemeniz gerekebilir.',
+        onDismiss: provider.acknowledgeQueueLoadNotice,
+      ));
+    }
+
+    if (notices.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: _noticeBackground,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _noticeBorder.withValues(alpha: 0.5)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: notices,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoticeRow({
+    required IconData icon,
+    required String text,
+    VoidCallback? onDismiss,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: _noticeBorder, size: 18),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              color: _noticeText,
+              fontSize: 12,
+              height: 1.35,
+            ),
+          ),
+        ),
+        if (onDismiss != null)
+          GestureDetector(
+            onTap: onDismiss,
+            behavior: HitTestBehavior.opaque,
+            child: const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: Icon(Icons.close_rounded, color: _noticeText, size: 16),
+            ),
+          ),
+      ],
+    );
   }
 
   @override
@@ -225,177 +324,184 @@ class QueueScreenState extends State<QueueScreen> with SingleTickerProviderState
           ),
         ],
       ),
-      body: allTasks.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: AmoledTheme.cardDark,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AmoledTheme.accentGray),
+      body: Column(
+        children: [
+          _buildQueueNoticeBanner(downloadProvider),
+          Expanded(
+            child: allTasks.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(24),
+                          decoration: BoxDecoration(
+                            color: AmoledTheme.cardDark,
+                            shape: BoxShape.circle,
+                            border: Border.all(color: AmoledTheme.accentGray),
+                          ),
+                          child: const Icon(
+                            Icons.cloud_download_outlined,
+                            size: 56,
+                            color: AmoledTheme.subText,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'Kuyrukta bekleyen indirme yok',
+                          style: TextStyle(
+                            color: AmoledTheme.pureWhite,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Ana sayfadan bir video veya oynatma listesi ekleyin',
+                          style: TextStyle(
+                            color: AmoledTheme.subText.withValues(alpha: 0.7),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
                     ),
-                    child: const Icon(
-                      Icons.cloud_download_outlined,
-                      size: 56,
-                      color: AmoledTheme.subText,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  const Text(
-                    'Kuyrukta bekleyen indirme yok',
-                    style: TextStyle(
-                      color: AmoledTheme.pureWhite,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Ana sayfadan bir video veya oynatma listesi ekleyin',
-                    style: TextStyle(
-                      color: AmoledTheme.subText.withValues(alpha: 0.7),
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : Column(
-              children: [
-                // 2. KUYRUK KATEGORİ SEKMELERİ (FİLTRELER)
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  child: Row(
+                  )
+                : Column(
                     children: [
-                      _buildFilterChip(
-                        filter: QueueFilter.all,
-                        label: 'Tümü',
-                        count: allTasks.length,
-                        activeColor: AmoledTheme.pureWhite,
+                      // 2. KUYRUK KATEGORİ SEKMELERİ (FİLTRELER)
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                        child: Row(
+                          children: [
+                            _buildFilterChip(
+                              filter: QueueFilter.all,
+                              label: 'Tümü',
+                              count: allTasks.length,
+                              activeColor: AmoledTheme.pureWhite,
+                            ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              filter: QueueFilter.downloading,
+                              label: 'Çalışıyor',
+                              count: runningCount,
+                              activeColor: const Color(0xFF00E676),
+                            ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              filter: QueueFilter.queued,
+                              label: 'Kuyrukta',
+                              count: queuedCount,
+                              activeColor: const Color(0xFFFFCC00),
+                            ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              filter: QueueFilter.error,
+                              label: 'Hata Oluştu',
+                              count: errorCount,
+                              activeColor: const Color(0xFFFF5252),
+                            ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              filter: QueueFilter.completed,
+                              label: 'Tamamlandı',
+                              count: completedCount,
+                              activeColor: const Color(0xFF00E676),
+                            ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              filter: QueueFilter.cancelled,
+                              label: 'İptal Edildi',
+                              count: cancelledCount,
+                              activeColor: const Color(0xFF888888),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        filter: QueueFilter.downloading,
-                        label: 'Çalışıyor',
-                        count: runningCount,
-                        activeColor: const Color(0xFF00E676),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        filter: QueueFilter.queued,
-                        label: 'Kuyrukta',
-                        count: queuedCount,
-                        activeColor: const Color(0xFFFFCC00),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        filter: QueueFilter.error,
-                        label: 'Hata Oluştu',
-                        count: errorCount,
-                        activeColor: const Color(0xFFFF5252),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        filter: QueueFilter.completed,
-                        label: 'Tamamlandı',
-                        count: completedCount,
-                        activeColor: const Color(0xFF00E676),
-                      ),
-                      const SizedBox(width: 8),
-                      _buildFilterChip(
-                        filter: QueueFilter.cancelled,
-                        label: 'İptal Edildi',
-                        count: cancelledCount,
-                        activeColor: const Color(0xFF888888),
+
+                      const Divider(color: AmoledTheme.borderDark, height: 1),
+
+                      // 3. GÖREV LİSTESİ
+                      Expanded(
+                        child: filteredTasks.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'Bu filtrede gösterilecek görev yok',
+                                  style: TextStyle(
+                                    color: AmoledTheme.subText.withValues(alpha: 0.7),
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              )
+                            : AmoledFastScroller(
+                                controller: _scrollController,
+                                child: ListView.separated(
+                                  controller: _scrollController,
+                                  padding: const EdgeInsets.all(16),
+                                  itemCount: filteredTasks.length,
+                                  separatorBuilder: (context, index) =>
+                                      const SizedBox(height: 10),
+                                  itemBuilder: (context, index) {
+                                    final task = filteredTasks[index];
+                                    return Dismissible(
+                                      key: Key('queue_task_${task.id}'),
+                                      direction: DismissDirection.endToStart,
+                                      background: Container(
+                                        alignment: Alignment.centerRight,
+                                        padding: const EdgeInsets.only(right: 20),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFF5252),
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Row(
+                                          mainAxisAlignment: MainAxisAlignment.end,
+                                          children: [
+                                            Text(
+                                              'Kuyruktan Çıkar',
+                                              style: TextStyle(
+                                                color: AmoledTheme.pureWhite,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            SizedBox(width: 8),
+                                            Icon(
+                                              Icons.delete_outline_rounded,
+                                              color: AmoledTheme.pureWhite,
+                                              size: 24,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      onDismissed: (_) {
+                                        downloadProvider.removeTask(task.id);
+                                      },
+                                      child: DownloadTile(
+                                        task: task,
+                                        onPause: () =>
+                                            downloadProvider.pauseTask(task.id),
+                                        onResume: () => downloadProvider.resumeTask(
+                                          task.id,
+                                          settingsProvider.settings,
+                                        ),
+                                        onCancel: () =>
+                                            downloadProvider.cancelTask(task.id),
+                                        onDelete: () =>
+                                            downloadProvider.removeTask(task.id),
+                                        onPrioritize: () =>
+                                            downloadProvider.prioritizeTask(task.id),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
                       ),
                     ],
                   ),
-                ),
-
-                const Divider(color: AmoledTheme.borderDark, height: 1),
-
-                // 3. GÖREV LİSTESİ
-                Expanded(
-                  child: filteredTasks.isEmpty
-                      ? Center(
-                          child: Text(
-                            'Bu filtrede gösterilecek görev yok',
-                            style: TextStyle(
-                              color: AmoledTheme.subText.withValues(alpha: 0.7),
-                              fontSize: 13,
-                            ),
-                          ),
-                        )
-                      : AmoledFastScroller(
-                          controller: _scrollController,
-                          child: ListView.separated(
-                            controller: _scrollController,
-                            padding: const EdgeInsets.all(16),
-                            itemCount: filteredTasks.length,
-                            separatorBuilder: (context, index) =>
-                                const SizedBox(height: 10),
-                            itemBuilder: (context, index) {
-                              final task = filteredTasks[index];
-                              return Dismissible(
-                                key: Key('queue_task_${task.id}'),
-                                direction: DismissDirection.endToStart,
-                                background: Container(
-                                  alignment: Alignment.centerRight,
-                                  padding: const EdgeInsets.only(right: 20),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFF5252),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
-                                    children: [
-                                      Text(
-                                        'Kuyruktan Çıkar',
-                                        style: TextStyle(
-                                          color: AmoledTheme.pureWhite,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13,
-                                        ),
-                                      ),
-                                      SizedBox(width: 8),
-                                      Icon(
-                                        Icons.delete_outline_rounded,
-                                        color: AmoledTheme.pureWhite,
-                                        size: 24,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                onDismissed: (_) {
-                                  downloadProvider.removeTask(task.id);
-                                },
-                                child: DownloadTile(
-                                  task: task,
-                                  onPause: () =>
-                                      downloadProvider.pauseTask(task.id),
-                                  onResume: () => downloadProvider.resumeTask(
-                                    task.id,
-                                    settingsProvider.settings,
-                                  ),
-                                  onCancel: () =>
-                                      downloadProvider.cancelTask(task.id),
-                                  onDelete: () =>
-                                      downloadProvider.removeTask(task.id),
-                                  onPrioritize: () =>
-                                      downloadProvider.prioritizeTask(task.id),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                ),
-              ],
-            ),
+          ),
+        ],
+      ),
     );
   }
 

@@ -16,6 +16,8 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -25,7 +27,14 @@ class MainActivity : FlutterActivity() {
     private val EVENT_CHANNEL = "com.offlineyoutube/download_events"
 
     private var eventSink: EventChannel.EventSink? = null
-    private val activityScope = CoroutineScope(Dispatchers.Main)
+
+    // FIX(scope): Düz Job'lı bir scope'ta TEK bir yakalanmamış hata parent Job'ı
+    // iptal ediyor ve o andan sonra başlatılan HER coroutine sessizce hiç
+    // çalışmıyordu: kullanıcı için bu, klasör boyutu ölçümü bir kez patladıktan
+    // sonra video bilgisi çekmenin ve motor güncellemenin sonsuza dek yanıtsız
+    // kalması demekti. SupervisorJob kardeşleri yalıtır; ayrıca her dal kendi
+    // hatasını yakalayıp Dart'a bildirir.
+    private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -35,8 +44,15 @@ class MainActivity : FlutterActivity() {
         // indirme sonrası silinirler ama süreç öldürülürse geride kalırlar.
         CookieHelper.clearStaleCookieFiles(applicationContext)
 
-        // Initialize YoutubeDL
-        YtDlpNativeManager.init(this)
+        // FIX(anr): YtDlpNativeManager.init() yt-dlp, ffmpeg ve aria2c arşivlerini
+        // diske açar; ilk açılışta saniyeler sürüyor ve ana thread'de çağrıldığı
+        // için uygulama daha ilk karede ANR ("Uygulama yanıt vermiyor") veriyordu.
+        // Context ANINDA bağlanır (çıktı yolu denetimi ile servis dirilişi buna
+        // bakar), ağır kurulum arka plana alınır.
+        YtDlpNativeManager.attachContext(applicationContext)
+        activityScope.launch {
+            withContext(Dispatchers.IO) { YtDlpNativeManager.init(applicationContext) }
+        }
 
         // Event Channel Setup
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL).setStreamHandler(
@@ -61,8 +77,25 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, METHOD_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "init" -> {
-                    YtDlpNativeManager.init(this)
-                    result.success(true)
+                    // FIX(sahte-basari): Kurulum patlasa bile true dönülüyordu.
+                    // Motor hazırlığını bu kanaldan soran taraf her zaman "hazır"
+                    // cevabı alıp kullanıcıya kurulum hatası yerine her indirmede
+                    // anlamsız yt-dlp hataları gösteriyordu. Ayrıca kurulum ana
+                    // thread'de koşuyordu (bkz. ANR notu).
+                    activityScope.launch {
+                        val hazir = withContext(Dispatchers.IO) {
+                            YtDlpNativeManager.init(applicationContext)
+                        }
+                        if (hazir) {
+                            result.success(true)
+                        } else {
+                            result.error(
+                                "INIT_FAILED",
+                                YtDlpNativeManager.lastInitError() ?: "yt-dlp motoru kurulamadı",
+                                null
+                            )
+                        }
+                    }
                 }
 
                 "updateYtDlp" -> {
@@ -109,6 +142,15 @@ class MainActivity : FlutterActivity() {
                     val url = call.argument<String>("url") ?: ""
                     val title = call.argument<String>("title") ?: "Video"
                     val outputPath = call.argument<String>("outputPath") ?: ""
+                    // FIX(dogrulama): Eksik argümanlar sessizce boş dizeye düşüyordu.
+                    // Geçersiz istek yine de foreground servisi ve WakeLock'u ayağa
+                    // kaldırıyor, 30 saniye "İndirme başlatılıyor" bildirimi gösterip
+                    // sessizce ölüyordu. fetchMetadata dalındaki disiplin burada da
+                    // uygulanıyor.
+                    if (taskId.isEmpty() || url.isEmpty() || outputPath.isEmpty()) {
+                        result.error("INVALID_ARGS", "taskId, url ve outputPath zorunludur", null)
+                        return@setMethodCallHandler
+                    }
 
                     val intent = Intent(this, DownloadForegroundService::class.java).apply {
                         action = DownloadForegroundService.ACTION_START
@@ -137,12 +179,28 @@ class MainActivity : FlutterActivity() {
 
                 "pauseDownload" -> {
                     val taskId = call.argument<String>("taskId") ?: ""
+                    if (taskId.isEmpty()) {
+                        result.error("INVALID_ARGS", "taskId zorunludur", null)
+                        return@setMethodCallHandler
+                    }
                     val intent = Intent(this, DownloadForegroundService::class.java).apply {
                         action = DownloadForegroundService.ACTION_PAUSE
                         putExtra(DownloadForegroundService.EXTRA_TASK_ID, taskId)
                     }
-                    startService(intent)
-                    result.success(true)
+                    // FIX(sahte-garanti): Dönüş "istek servise İLETİLDİ" demektir,
+                    // "duraklatıldı" demek değil; duraklamanın kesin onayı servisin
+                    // gönderdiği "paused" olayıdır. Eskiden istisna hiç ele
+                    // alınmadığı için iletim başarısızken bile true dönülüyordu:
+                    // uygulama arka plandayken (API 26+) startService
+                    // IllegalStateException fırlatır, Dart görevi "duraklatıldı"
+                    // sayar, native indirme ise sürer.
+                    try {
+                        startService(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "pauseDownload startService failed: ${e.message}")
+                        result.error("SERVICE_NOT_STARTED", "Duraklatma isteği servise iletilemedi", null)
+                    }
                 }
 
                 // NOTE: Eski "resumeDownload" handler'ı kaldırıldı — Dart tarafında
@@ -151,20 +209,36 @@ class MainActivity : FlutterActivity() {
 
                 "cancelDownload" -> {
                     val taskId = call.argument<String>("taskId") ?: ""
+                    if (taskId.isEmpty()) {
+                        result.error("INVALID_ARGS", "taskId zorunludur", null)
+                        return@setMethodCallHandler
+                    }
                     val intent = Intent(this, DownloadForegroundService::class.java).apply {
                         action = DownloadForegroundService.ACTION_CANCEL
                         putExtra(DownloadForegroundService.EXTRA_TASK_ID, taskId)
                     }
-                    startService(intent)
-                    result.success(true)
+                    // Bkz. pauseDownload: dönüş yalnız iletimi doğrular, iptalin
+                    // kesin onayı servisin "cancelled" olayıdır.
+                    try {
+                        startService(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "cancelDownload startService failed: ${e.message}")
+                        result.error("SERVICE_NOT_STARTED", "İptal isteği servise iletilemedi", null)
+                    }
                 }
 
                 "stopDownloadService" -> {
                     val intent = Intent(this, DownloadForegroundService::class.java).apply {
                         action = DownloadForegroundService.ACTION_STOP_SERVICE
                     }
-                    startService(intent)
-                    result.success(true)
+                    try {
+                        startService(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "stopDownloadService startService failed: ${e.message}")
+                        result.error("SERVICE_NOT_STARTED", "Servisi durdurma isteği iletilemedi", null)
+                    }
                 }
 
                 "hasAllFilesPermission" -> {
@@ -226,17 +300,34 @@ class MainActivity : FlutterActivity() {
 
                 "getFolderSize" -> {
                     val path = call.argument<String>("path") ?: ""
-                    val safeBaseDir = context.getExternalFilesDir(null)?.absolutePath ?: ""
-                    if (path.isEmpty() || !path.startsWith(safeBaseDir)) {
+                    // FIX(kota): Eski kapı iki yönde birden sızdırıyordu.
+                    // (a) getExternalFilesDir null dönünce (telefon USB ile
+                    // bilgisayara bağlanıp depolama paylaşıma açıldığında olur)
+                    // safeBaseDir boş dizeye düşüyor, startsWith("") HER yolu kabul
+                    // ediyordu. (b) Ters yönde: Dart harici dizini oluşturamayıp
+                    // app_flutter altındaki yedek klasöre düştüğünde o yol listede
+                    // olmadığı için ölçüm kalıcı olarak 0 dönüyordu; arayüzde
+                    // "0 B" yazıyor ve depolama kotası hiç kapanmıyordu.
+                    // İzinli kökler artık YtDlpNativeManager ile TEK kaynaktan
+                    // geliyor (indirme yolu denetimiyle aynı liste).
+                    if (path.isEmpty() ||
+                        !YtDlpNativeManager.isPathInAppStorage(applicationContext, File(path))
+                    ) {
                         Log.w("MainActivity", "Blocked unauthorized path size request")
-                        result.success(0L)
+                        // 0L DEĞİL hata: "ölçemedim" ile "0 bayt" aynı şey değildir;
+                        // Dart tarafı hatayı görünce kendi yedek taramasını yapar.
+                        result.error("UNAUTHORIZED_PATH", "Yol uygulama depolamasının dışında, ölçüm yapılmadı", null)
                         return@setMethodCallHandler
                     }
                     activityScope.launch {
-                        val size = withContext(Dispatchers.IO) {
-                            calculateFolderSize(File(path))
+                        try {
+                            val size = withContext(Dispatchers.IO) {
+                                calculateFolderSize(File(path))
+                            }
+                            result.success(size)
+                        } catch (e: Exception) {
+                            result.error("FOLDER_SIZE_ERROR", e.message ?: "Klasör boyutu ölçülemedi", null)
                         }
-                        result.success(size)
                     }
                 }
 
@@ -247,6 +338,13 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun onDestroy() {
+        // FIX(scope): Activity yok edildikten sonra süren coroutine'ler hem
+        // Activity'yi hem de artık kimseye ulaşmayacak eventSink'i canlı tutuyordu.
+        activityScope.cancel()
+        super.onDestroy()
     }
 
     // FIX(cycle): Sembolik link döngüsü veya FIFO içeren klasörlerde sonsuz

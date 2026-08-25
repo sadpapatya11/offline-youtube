@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../utils/snackbar_helper.dart';
+import '../../models/playlist_entry.dart';
 import '../../providers/download_provider.dart';
 import '../../providers/library_provider.dart';
 import '../../providers/settings_provider.dart';
 import '../theme/amoled_theme.dart';
 import '../widgets/amoled_card.dart';
+import 'playlist_selection_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final VoidCallback onNavigateToQueue;
@@ -102,9 +104,27 @@ class _HomeScreenState extends State<HomeScreen> {
               backgroundColor: const Color(0xFF330000),
             );
           } else {
-            // Kullanıcının isteği: Sadece en güncel olan 1 adet videoyu kuyruğa ekle.
-            // result.entries zaten indirilmemiş olan videoları en güncelden eskiye sıralı şekilde getiriyor.
-            final selected = result.entries.take(1).toList();
+            // FIX(playlist-secim): Liste artık ne sessizce kuyruğa dökülüyor ne de
+            // tek videoya indirgeniyor. Eski davranışta 100 videoluk bir listeden
+            // yalnız 1 tanesi iniyordu ve kalan 99'u almanın tek yolu aynı düğmeye
+            // 99 kez basmaktı; seçim ekranı ise derlemede ölü kod olarak duruyordu.
+            final selected = await Navigator.of(context).push<List<PlaylistEntry>>(
+              MaterialPageRoute(
+                builder: (_) => PlaylistSelectionScreen(result: result),
+              ),
+            );
+
+            if (!mounted) return;
+
+            if (selected == null || selected.isEmpty) {
+              // İptal sessiz geçilmez: kullanıcı kuyruğa bir şey eklendiğini sanmasın.
+              SnackbarHelper.showTop(
+                context,
+                'Video seçilmedi, kuyruğa hiçbir şey eklenmedi.',
+                backgroundColor: const Color(0xFF330000),
+              );
+              return;
+            }
 
             final addError = await downloadProvider.addSelectedEntries(
               entries: selected,
@@ -126,7 +146,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _urlController.clear();
               SnackbarHelper.showTop(
                 context,
-                '⚡ En güncel video kuyruğa eklendi! (Kalan yeni video sayısı: ${result.entries.length - 1})',
+                '⚡ ${selected.length} video kuyruğa eklendi!',
                 backgroundColor: const Color(0xFF003311),
                 duration: const Duration(seconds: 2),
                 action: SnackBarAction(
@@ -259,6 +279,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                     ),
+                    // FIX(temizle-dugmesi): Görünürlük koşulu controller metnini
+                    // okuyor ama yazmak tek başına yeniden kurulum tetiklemiyordu;
+                    // bu yüzden temizle düğmesi kullanıcı yazarken hiç görünmüyordu.
+                    onChanged: (_) => setState(() {}),
                     onSubmitted: (val) => _triggerDownload(val),
                   ),
                   const SizedBox(height: 14),
@@ -353,15 +377,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showAddPlaylistDialog(BuildContext context, SettingsProvider settingsProvider) {
     final controller = TextEditingController();
+    final errorText = ValueNotifier<String?>(null);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AmoledTheme.cardDark,
         title: const Text('Oynatma Listesi Kaydet', style: TextStyle(color: AmoledTheme.pureWhite)),
-        content: TextField(
-          controller: controller,
-          style: const TextStyle(color: AmoledTheme.pureWhite),
-          decoration: const InputDecoration(hintText: 'https://youtube.com/playlist?list=...'),
+        content: ValueListenableBuilder<String?>(
+          valueListenable: errorText,
+          builder: (_, error, _) => TextField(
+            controller: controller,
+            style: const TextStyle(color: AmoledTheme.pureWhite),
+            decoration: InputDecoration(
+              hintText: 'https://youtube.com/playlist?list=...',
+              errorText: error,
+            ),
+          ),
         ),
         actions: [
           TextButton(
@@ -370,16 +401,32 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           ElevatedButton(
             onPressed: () {
-              final text = controller.text.trim();
-              if (text.isNotEmpty) {
-                settingsProvider.addSavedPlaylist(text);
-                Navigator.pop(ctx);
+              // FIX(liste-dogrulama): Buraya girilen her metin doğrulanmadan
+              // kaydediliyordu. "youtube listem" gibi bir kayıt her açılış
+              // eşitlemesinde çözümlenmeye çalışılıp hata üretiyor, kullanıcı
+              // ise listenin takip edildiğini sanıyordu.
+              final cleanUrl = DownloadProvider.extractYouTubeUrl(controller.text);
+              if (cleanUrl == null) {
+                errorText.value = 'Geçerli bir YouTube bağlantısı girin.';
+                return;
               }
+              if (!DownloadProvider.isPlaylistUrl(cleanUrl)) {
+                errorText.value =
+                    'Bu bir oynatma listesi veya kanal bağlantısı değil. Tek videoyu yukarıdaki kutudan indirin.';
+                return;
+              }
+              settingsProvider.addSavedPlaylist(cleanUrl);
+              Navigator.pop(ctx);
             },
             child: const Text('Kaydet'),
           ),
         ],
       ),
-    );
+    ).whenComplete(() {
+      // FIX(controller-sizinti): Diyalog kapandığında elle atılmazsa her
+      // açılışta bir TextEditingController (ve dinleyicileri) bellekte kalıyordu.
+      controller.dispose();
+      errorText.dispose();
+    });
   }
 }

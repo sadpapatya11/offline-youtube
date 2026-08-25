@@ -19,9 +19,25 @@ import java.util.regex.Pattern
 
 object YtDlpNativeManager {
     private const val TAG = "YtDlpNativeManager"
-    private var isInitialized = false
-    private var appContext: Context? = null
-    private val activeTasks = ConcurrentHashMap<String, String>() // taskId -> taskId
+
+    // FIX(anr): Bu alanlar ana thread'de yazılıp IO thread'lerinde okunuyor
+    // (kurulum artık arka planda koşuyor), @Volatile olmadan bir thread bayat
+    // "kurulmadı" değeri görüp motoru ikinci kez kurmaya kalkabilirdi.
+    @Volatile private var isInitialized = false
+    @Volatile private var appContext: Context? = null
+    // FIX(init-retry): FFmpeg ve Aria2c ayrı izleniyor. Eski kod ikisi patlasa
+    // bile isInitialized = true yazıyor ve sonraki init() çağrıları "if
+    // (isInitialized) return" ile kısa devre oluyordu: ffmpeg bir kez
+    // kurulamayınca birleştirme (merge) her videoda sessizce bozuk kalıyor,
+    // kullanıcıya verilen "uygulamayı yeniden başlat" tavsiyesi de sonuçsuz
+    // kalıyordu. Artık yalnız eksik bileşen her çağrıda yeniden denenir.
+    @Volatile private var ffmpegReady = false
+    @Volatile private var aria2cReady = false
+    @Volatile private var lastInitError: String? = null
+    // NOT: Eski "activeTasks" haritası kaldırıldı — yazılıyor ama hiçbir yerde
+    // okunmuyordu (ne get, ne containsKey). Aktif görevlerin tek doğruluk
+    // kaynağı DownloadForegroundService.activeDownloadJobs'tur; ikinci bir
+    // yarım kayıt tutmak yalnızca sapma üretir.
     private val intentionallyStoppedTasks = ConcurrentHashMap.newKeySet<String>()
     // FIX(race): Her görev için "durdurma nesli" sayacı. stopDownload() sayacı
     // artırır; startDownload'ın catch bloğu, yürütme başladıktan sonra sayacın
@@ -40,26 +56,136 @@ object YtDlpNativeManager {
     private val DOWNLOADED_PERCENT_PATTERN = Pattern.compile("\\[download\\]\\s+([0-9.]+)%")
     private val SIZE_VALUE_PATTERN = Pattern.compile("([0-9.]+)\\s*([kKmMgG]?[iI]?[bB])")
 
-    fun init(context: Context) {
-        if (isInitialized) return
+    /**
+     * Yalnızca uygulama context'ini bağlar, ağır kurulum YAPMAZ.
+     *
+     * FIX(anr): [init] yt-dlp, ffmpeg ve aria2c arşivlerini diske açar; ilk
+     * açılışta saniyeler sürer ve ana thread'de çağrıldığı için uygulama daha
+     * ilk karede ANR veriyordu. Ağır kısım artık arka plana alındı, ama
+     * [startDownload] çıktı yolu denetimi appContext'e bakıyor: context'i
+     * ANINDA bağlamazsak (ya da servis START_STICKY ile tek başına dirilirse)
+     * appContext null kalır ve yol denetimi tamamen atlanırdı.
+     */
+    fun attachContext(context: Context) {
         appContext = context.applicationContext
-        try {
-            ThermalManager.init(context.applicationContext)
-            YoutubeDL.getInstance().init(context.applicationContext)
+    }
+
+    /**
+     * Motoru kurar ve gerçekten kurulup kurulmadığını döndürür.
+     *
+     * ARKA PLAN THREAD'İNDEN çağrılmalıdır (bkz. [attachContext]).
+     * `@Synchronized`: arka plandaki ilk kurulum ile ilk indirmenin
+     * [ensureInitialized] çağrısı yarışabilir; ikisi aynı anda arşiv açarsa
+     * yarım dosyalar üzerine yazılır.
+     */
+    @Synchronized
+    fun init(context: Context): Boolean {
+        val ctx = context.applicationContext
+        appContext = ctx
+        if (!isInitialized) {
             try {
-                FFmpeg.getInstance().init(context.applicationContext)
+                ThermalManager.init(ctx)
+                YoutubeDL.getInstance().init(ctx)
+                isInitialized = true
+                lastInitError = null
+                Log.i(TAG, "YtDlpNativeManager initialized successfully")
+            } catch (e: Exception) {
+                lastInitError = e.message ?: e.javaClass.simpleName
+                Log.e(TAG, "Failed to initialize YoutubeDL: ${e.message}", e)
+                return false
+            }
+        }
+        if (!ffmpegReady) {
+            ffmpegReady = try {
+                FFmpeg.getInstance().init(ctx)
+                true
             } catch (e: Exception) {
                 Log.w(TAG, "FFmpeg init notice: ${e.message}")
+                false
             }
-            try {
-                Aria2c.getInstance().init(context.applicationContext)
+        }
+        if (!aria2cReady) {
+            aria2cReady = try {
+                Aria2c.getInstance().init(ctx)
+                true
             } catch (e: Exception) {
                 Log.w(TAG, "Aria2c init notice: ${e.message}")
+                false
             }
-            isInitialized = true
-            Log.i(TAG, "YtDlpNativeManager initialized successfully")
+        }
+        return isInitialized
+    }
+
+    /** Son kurulum hatası; kurulum başarısızsa çağırana gerçek nedeni taşır. */
+    fun lastInitError(): String? = lastInitError
+
+    /**
+     * Motor hazır değilse burada kurar (IO thread'inde çağrılır).
+     *
+     * Gerekli: kurulum artık arka planda başlatıldığı için ilk `fetchMetadata`
+     * veya indirme, kurulum bitmeden gelebilir; ayrıca sistem uygulamayı
+     * öldürüp yalnızca servisi START_STICKY ile dirilttiğinde MainActivity hiç
+     * çalışmaz ve motor hiç kurulmamış olur.
+     */
+    private fun ensureInitialized(): Boolean {
+        if (isInitialized) return true
+        val ctx = appContext ?: return false
+        return init(ctx)
+    }
+
+    private fun initFailureReason(): String =
+        lastInitError ?: "uygulama bağlamı bağlanmadı"
+
+    /**
+     * Uygulamaya özel depolama kökleri.
+     *
+     * Yalnız `getExternalFilesDir` yetmez: Dart tarafı harici dizini
+     * oluşturamazsa `getApplicationDocumentsDirectory()` altına (app_flutter)
+     * düşer (storage_manager.dart initDirectory yedek dalı). O yol listede
+     * olmazsa native taraf kendi indirme klasörümüzü "yetkisiz" sayar ve
+     * indirme hiç başlamaz.
+     */
+    private fun appStorageRoots(context: Context): List<File> {
+        val roots = mutableListOf<File>()
+        try {
+            context.getExternalFilesDirs(null)?.forEach { dir -> if (dir != null) roots.add(dir) }
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize YoutubeDL: ${e.message}", e)
+            Log.w(TAG, "External app dirs unavailable: ${e.message}")
+        }
+        try {
+            roots.add(context.filesDir)
+            // Flutter'ın PathUtils.getDataDirectory() ile birebir aynı yol:
+            // path_provider'ın getApplicationDocumentsDirectory() dönüşü budur.
+            roots.add(context.getDir("flutter", Context.MODE_PRIVATE))
+        } catch (e: Exception) {
+            Log.w(TAG, "Internal app dirs unavailable: ${e.message}")
+        }
+        return roots
+    }
+
+    /**
+     * Verilen yolun uygulamaya özel depolamanın İÇİNDE olup olmadığı.
+     *
+     * FIX(path): Eski denetim iki yerden birden sızdırıyordu: (a) `safeBaseDir`
+     * boş dizeye düşünce `startsWith("")` her yol için true dönüyor, kapı tamamen
+     * açılıyordu; (b) `contains(packageName)` ölçütü
+     * `/storage/emulated/0/Download/com.offlineyoutube.offlineyoutube_yedek/../..`
+     * gibi bir yolu kabul ediyordu. Artık karşılaştırma canonical (sembolik link
+     * ve `..` çözülmüş) Path üzerinden yapılır; kök hiç bulunamazsa kapı AÇILMAZ.
+     */
+    fun isPathInAppStorage(context: Context, target: File): Boolean {
+        val targetPath = try {
+            target.canonicalFile.toPath()
+        } catch (e: Exception) {
+            Log.w(TAG, "Path canonicalization failed: ${e.message}")
+            return false
+        }
+        return appStorageRoots(context).any { root ->
+            try {
+                targetPath.startsWith(root.canonicalFile.toPath())
+            } catch (e: Exception) {
+                false
+            }
         }
     }
 
@@ -92,6 +218,7 @@ object YtDlpNativeManager {
         var cookieFile: File? = null
         try {
             if (!isUrlSafe(url)) throw IllegalArgumentException("Unauthorized URL scheme/domain")
+            if (!ensureInitialized()) throw IllegalStateException("yt-dlp motoru kurulamadı: ${initFailureReason()}")
             val isPlaylist = isPlaylistUrl(url)
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
@@ -100,7 +227,7 @@ object YtDlpNativeManager {
                 addOption("--add-header", "Accept-Language: tr-TR,tr;q=0.9,en;q=0.8")
                 
                 appContext?.let { ctx ->
-                    cookieFile = CookieHelper.saveCookies(ctx)
+                    cookieFile = CookieHelper.saveCookies(ctx, "meta")
                     if (cookieFile != null && cookieFile!!.exists()) {
                         addOption("--cookies", cookieFile!!.absolutePath)
                     }
@@ -153,7 +280,7 @@ object YtDlpNativeManager {
             Log.e(TAG, "Fetch metadata failed: ${e.message}", e)
             throw e
         } finally {
-            cookieFile?.delete()
+            CookieHelper.release(cookieFile)
         }
     }
 
@@ -161,6 +288,7 @@ object YtDlpNativeManager {
         var cookieFile: File? = null
         try {
             if (!isUrlSafe(url)) throw IllegalArgumentException("Unauthorized URL scheme/domain")
+            if (!ensureInitialized()) throw IllegalStateException("yt-dlp motoru kurulamadı: ${initFailureReason()}")
             val request = YoutubeDLRequest(url).apply {
                 addOption("--no-update")
                 addOption("--no-warnings")
@@ -177,7 +305,7 @@ object YtDlpNativeManager {
                 addOption("--flat-playlist")
                 addOption("-J")
                 appContext?.let { ctx ->
-                    cookieFile = CookieHelper.saveCookies(ctx)
+                    cookieFile = CookieHelper.saveCookies(ctx, "list")
                     if (cookieFile != null && cookieFile!!.exists()) {
                         addOption("--cookies", cookieFile!!.absolutePath)
                     }
@@ -276,7 +404,7 @@ object YtDlpNativeManager {
             Log.e(TAG, "Fetch playlist entries failed: ${e.message}", e)
             throw e
         } finally {
-            cookieFile?.delete()
+            CookieHelper.release(cookieFile)
         }
     }
 
@@ -297,9 +425,20 @@ object YtDlpNativeManager {
             onError(IllegalArgumentException("Unauthorized URL scheme/domain"))
             return
         }
-        
-        val safeBaseDir = appContext?.getExternalFilesDir(null)?.absolutePath ?: ""
-        if (outputDir.absolutePath.isEmpty() || (!outputDir.absolutePath.startsWith(safeBaseDir) && !outputDir.absolutePath.contains(appContext?.packageName ?: ""))) {
+
+        if (!ensureInitialized()) {
+            onError(IllegalStateException("yt-dlp motoru kurulamadı: ${initFailureReason()}"))
+            return
+        }
+
+        // Kurulum başarılıysa appContext kesinlikle doludur; yine de null ise
+        // yolu doğrulayamayız ve "doğrulayamadım" sessizce "geçti" sayılamaz.
+        val ctx = appContext
+        if (ctx == null) {
+            onError(IllegalStateException("Uygulama bağlamı yok, çıktı yolu doğrulanamadı"))
+            return
+        }
+        if (outputDir.absolutePath.isEmpty() || !isPathInAppStorage(ctx, outputDir)) {
             Log.w(TAG, "Blocked unauthorized path: ${outputDir.absolutePath}")
             onError(IllegalArgumentException("Unauthorized output path"))
             return
@@ -320,7 +459,6 @@ object YtDlpNativeManager {
                 noMedia.createNewFile()
             }
 
-            activeTasks[taskId] = taskId
             intentionallyStoppedTasks.remove(taskId)
 
             val ffmpegThreads = ThermalManager.getRecommendedFfmpegThreads()
@@ -370,20 +508,25 @@ object YtDlpNativeManager {
                 addOption("--continue")
                 addOption("--ignore-errors")
                 addOption("--no-playlist")
-                appContext?.let { ctx ->
-                    cookieFile = CookieHelper.saveCookies(ctx)
-                    if (cookieFile != null && cookieFile!!.exists()) {
-                        addOption("--cookies", cookieFile!!.absolutePath)
-                    }
+                cookieFile = CookieHelper.saveCookies(ctx, taskId)
+                if (cookieFile != null && cookieFile!!.exists()) {
+                    addOption("--cookies", cookieFile!!.absolutePath)
                 }
-                
+
                 // 5. Türkçe Altyazı (Sidecar .vtt/.srt files - no video re-encoding)
                 addOption("--write-subs")
                 addOption("--write-auto-subs")
                 addOption("--sub-lang", "tr,tr-orig,tr-TR,en")
                 addOption("--sub-format", "vtt/srt/best")
                 
-                // 6. Thermal-Aware Dynamic Rate Limiting & Sleep Interval
+                // 6. Hız sınırı: değer SÜREÇ BAŞLARKEN bir kez seçilir.
+                // DİKKAT (yanlış güvenlik hissi): yt-dlp --limit-rate'i komut
+                // satırından okur, çalışırken değiştirilemez. Cihaz indirme
+                // sırasında ısınırsa ThermalManager daha düşük bir değer önerse
+                // bile ÇALIŞAN süreç eski hızla devam eder; termal koruma ancak
+                // bir sonraki görevde (veya duraklat/devam ettir sonrası, çünkü
+                // --continue ile yeni süreç yeni limitle başlar) devreye girer.
+                // Süreç içi koruma sistemin kendi kısıtlamasına bırakılmıştır.
                 addOption("--limit-rate", dynamicRateLimit)
                 addOption("--sleep-interval", "1")
                 addOption("--max-sleep-interval", "3")
@@ -394,6 +537,13 @@ object YtDlpNativeManager {
 
             var lastProgressEmitTime = 0L
             var lastProgressPercent = -1f
+            // FIX(yuzde-geri): Geri gitme koruması eskiden callback'in İÇİNDE,
+            // her çağrıda sıfırlanan yerel değişkenle yapılıyordu; hiçbir şey
+            // hatırlamıyordu. yt-dlp "bestvideo+bestaudio" ile önce videoyu
+            // 0'dan 100'e indirir, sonra ses akışını yeniden 0'dan başlatır:
+            // kullanıcı bildirimde %100 gördükten saniyeler sonra %0,4 görüyor,
+            // indirme bozuldu sanıyordu. Yüzde artık çağrılar arasında monoton.
+            var monotonicProgress = 0f
 
             val response: YoutubeDLResponse = YoutubeDL.getInstance().execute(
                 request,
@@ -427,33 +577,32 @@ object YtDlpNativeManager {
                         val m = DOWNLOADED_PERCENT_PATTERN.matcher(line)
                         if (m.find()) {
                             m.group(1).toFloatOrNull()?.let { parsedProgress ->
-                                // Prevent progress from jumping backwards when yt-dlp downloads audio after video
-                                if (parsedProgress >= currentProgress || (currentProgress - parsedProgress) < 50f) {
-                                    // Sadece küçük bir gerileme varsa veya ilerliyorsa güncelle (0'a düşmeyi engelle)
-                                    // Ancak tam 100'den 0'a ani düşüşü engelle (audio başlangıcı)
-                                    if (parsedProgress > currentProgress || currentProgress < 95f) {
-                                        currentProgress = maxOf(currentProgress, parsedProgress)
-                                    }
-                                }
+                                currentProgress = maxOf(currentProgress, parsedProgress)
                             }
                         }
                     }
                 }
 
+                monotonicProgress = maxOf(monotonicProgress, currentProgress)
+                currentProgress = monotonicProgress
+
                 val delta = Math.abs(currentProgress - lastProgressPercent)
-                
+                // %100'e ulaşma bir KEZ bildirilir. Monoton yüzde 100'de sabit
+                // kaldığı için eski "currentProgress >= 100f" koşulu, birleştirme
+                // (merge) boyunca gelen her stdout satırında kısmayı devre dışı
+                // bırakıp dört ekranı birden yeniden kurdururdu.
+                val reachedFullNow = currentProgress >= 100f && lastProgressPercent < 100f
+
                 // Source-level native callback throttling: parse strings ONLY on meaningful progress or timeout
-                if (currentProgress >= 100f || (now - lastProgressEmitTime >= 800L && delta >= 0.5f) || (now - lastProgressEmitTime >= 2500L)) {
+                if (reachedFullNow || (now - lastProgressEmitTime >= 800L && delta >= 0.5f) || (now - lastProgressEmitTime >= 2500L)) {
                     lastProgressEmitTime = now
                     lastProgressPercent = currentProgress
                     onProgress(currentProgress, etaInSeconds, speed, totalSize, downloadedSize)
                 }
             }
 
-            activeTasks.remove(taskId)
             onComplete(response.out ?: "İndirme Tamamlandı")
         } catch (e: Exception) {
-            activeTasks.remove(taskId)
             // FIX(race): Nesil değiştiyse (durdurma olduysa) veya bayrak hâlâ
             // duruyorsa bu bilinçli bir duraklatma/iptaldir — hata bildirme.
             val generationChanged = (stopGeneration[taskId] ?: 0) != executionGeneration
@@ -464,7 +613,7 @@ object YtDlpNativeManager {
             Log.e(TAG, "Download error for task $taskId: ${e.message}", e)
             onError(e)
         } finally {
-            cookieFile?.delete()
+            CookieHelper.release(cookieFile)
         }
     }
 
@@ -475,7 +624,6 @@ object YtDlpNativeManager {
             stopGeneration[taskId] = (stopGeneration[taskId] ?: 0) + 1
             intentionallyStoppedTasks.add(taskId)
             YoutubeDL.getInstance().destroyProcessById(taskId)
-            activeTasks.remove(taskId)
             Log.i(TAG, "Task $taskId destroyed/stopped intentionally")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to stop task $taskId: ${e.message}", e)

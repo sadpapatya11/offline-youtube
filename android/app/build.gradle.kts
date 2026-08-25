@@ -7,12 +7,22 @@ plugins {
 
 import java.util.Properties
 
-// FIX(security): Keystore repo'da tutulmaz — keystore.properties gitignore'da.
-// Dosya yoksa release imzası devre dışı kalır (debug anahtarı kullanılır),
-// böylece keystore'suz ortamlarda build bozulmaz.
+// FIX(security): Keystore repo'da tutulmaz, android/app/keystore.properties
+// gitignore'dadır. Release paketleme istendiğinde keystore YOKSA derleme PATLAR;
+// sessizce imzasız APK üretilmez. Debug/geliştirme derlemeleri etkilenmez.
+//
+// FIX(imza-tespiti): Eski koşul yalnız görev adında "Release" alt dizgisi arıyordu.
+// "./gradlew build", "assemble" ve "bundle" toplu görevleri release varyantını da
+// derler ama adlarında "Release" GEÇMEZ: o yolda GradleException atılmıyor,
+// releaseProps null dönüyor, signingConfig hiç atanmıyor ve AGP imzasız bir release
+// APK üretiyordu. Çıktı hiçbir cihaza kurulamıyor, üstelik imzasız olduğu ancak
+// kurulum denemesinde anlaşılıyordu.
 fun loadKeystoreProps(project: org.gradle.api.Project): Properties? {
     val propsFile = project.file("keystore.properties")
-    val isReleaseBuild = project.gradle.startParameter.taskNames.any { it.contains("Release") }
+    val isReleaseBuild = project.gradle.startParameter.taskNames.any { rawName ->
+        val name = rawName.substringAfterLast(':').lowercase()
+        name.contains("release") || name == "build" || name == "assemble" || name == "bundle"
+    }
     
     if (!propsFile.exists()) {
         if (isReleaseBuild) {

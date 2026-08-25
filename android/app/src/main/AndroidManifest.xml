@@ -12,11 +12,20 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- usesCleartextTraffic: targetSdk 28+ zaten varsayılan olarak şifresiz HTTP'yi
+         engeller, ama öznitelik yazılı olmadığı için bu bir "tercih mi, unutulmuş mu"
+         belirsizliği üretiyordu. Açıkça false: tüm uygulama içi trafik HTTPS.
+         NOT (kapsam): Bu bayrak yalnız Android ağ yığınını (WebView, http istemcisi)
+         bağlar; indirmeyi yapan yt-dlp AYRI bir süreçtir ve kendi TLS'ini kullanır,
+         bu ayardan etkilenmez.
+         requestLegacyExternalStorage: API 30 ve üstünde tamamen yok sayılır, yalnız
+         Android 10 (API 29) cihazlarda etkilidir; minSdk 24 olduğu için duruyor. -->
     <application
         android:label="Offline YouTube"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true"
+        android:usesCleartextTraffic="false"
         android:allowBackup="false"
         android:extractNativeLibs="true">
 

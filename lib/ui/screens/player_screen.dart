@@ -19,6 +19,76 @@ class SubtitleCue {
   });
 }
 
+/// Oynatıcının saf karar mantığı.
+///
+/// NEDEN ayrı: video_player widget'ı testte platform kanalı istediği için bu
+/// kurallar State içinde kaldığı sürece hiç doğrulanamıyordu; ayrılınca
+/// regresyon testi yazılabiliyor (test/fix_oynatici_test.dart).
+class PlayerLogic {
+  const PlayerLogic._();
+
+  /// Slider'ın göstereceği milisaniye değeri.
+  ///
+  /// NEDEN: Değer doğrudan controller'dan okunduğunda sürükleme sırasında
+  /// tutamak parmağı takip etmiyor, decoder'ın yetiştiği konuma geri
+  /// sıçrıyordu. Sürükleme boyunca yerel taslak değer gösterilir.
+  static double sliderValueMs({
+    required double? dragValueMs,
+    required int positionMs,
+    required int durationMs,
+  }) {
+    final maxMs = durationMs > 0 ? durationMs.toDouble() : 0.0;
+    final raw = dragValueMs ?? positionMs.toDouble();
+    return raw.clamp(0.0, maxMs);
+  }
+
+  /// Tick sırasında kalıcılaştırılacak pozisyon; null ise kayıt yapılmaz.
+  ///
+  /// NEDEN durationMs kapısı: Oynatıcı değeri hata sonrası sıfırlandığında
+  /// (position 0, duration 0) eski kod savePosition(id, 0) çağırıyordu.
+  /// PlaybackManager 1000 ms altını "kaydı sil" olarak yorumladığı için
+  /// 45. dakikada codec hatası alan kullanıcının kaldığı yer siliniyordu.
+  static int? positionToPersistOnTick({
+    required int positionMs,
+    required int durationMs,
+    required int lastSavedPosMs,
+  }) {
+    if (durationMs <= 0) return null;
+    if ((positionMs - lastSavedPosMs).abs() <= 2000) return null;
+    if (positionMs >= durationMs - 3000) return 0;
+    return positionMs;
+  }
+
+  /// Pozisyon değişimi ekranda gerçekten bir piksel değiştiriyor mu.
+  ///
+  /// NEDEN: Kontroller gizli ve altyazı kapalıyken pozisyona bağlı hiçbir şey
+  /// çizilmiyor; buna rağmen saniyede 3 ila 4 setState tüm Scaffold'u yeniden
+  /// kuruyordu (2 saatlik izlemede on binlerce gereksiz rebuild).
+  static bool shouldRebuildForTick({
+    required bool controlsVisible,
+    required bool subtitlesVisible,
+    required int positionMs,
+    required int lastRenderedPosMs,
+  }) {
+    if (!controlsVisible && !subtitlesVisible) return false;
+    return (positionMs - lastRenderedPosMs).abs() >= 250;
+  }
+
+  /// Oynatıcı hata verdiğinde kullanıcıya gösterilecek metin.
+  ///
+  /// NEDEN: errorDescription null olabiliyor; doğrudan basılsaydı ekranda
+  /// "null" yazacak ya da boş kalacaktı, kullanıcı donmuş ekranın nedenini
+  /// yine göremeyecekti.
+  static String playbackErrorMessage(String? errorDescription) {
+    final detail = errorDescription?.trim() ?? '';
+    if (detail.isEmpty) {
+      return 'Video oynatılamadı. Dosya bozuk olabilir veya codec bu cihazda '
+          'desteklenmiyor olabilir.';
+    }
+    return 'Video oynatılırken hata oluştu:\n$detail';
+  }
+}
+
 class PlayerScreen extends StatefulWidget {
   final VideoItem video;
   final List<VideoItem>? playlist;
@@ -35,7 +105,8 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen>
+    with WidgetsBindingObserver {
   late List<VideoItem> _playlist;
   late int _currentIndex;
 
@@ -61,6 +132,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   // 250ms'den fazla değişince setState (her tick'te rebuild'e gerek yok).
   int _lastRenderedPosMs = 0;
 
+  // FIX(oynatici): Sürükleme sırasındaki yerel taslak değer. NEDEN: Slider
+  // değeri doğrudan controller'dan okununca tutamak parmağı takip etmiyor,
+  // üstelik her pointer move olayında bir seekTo platform kanalına gidiyordu.
+  double? _dragValueMs;
+
   // Altyazı Yönetimi
   bool _showSubtitles = false;
   List<SubtitleCue> _subtitleCues = [];
@@ -73,6 +149,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _resetControlsTimer() {
     _controlsTimer?.cancel();
+    // FIX(oynatici): Ekran kapandıktan sonra kurulan zamanlayıcı, kapatılmış
+    // State'in tüm alanlarını (oynatma listesi, altyazı listesi) 1,5 saniye
+    // daha canlı tutuyordu.
+    if (!mounted) return;
     if (_showControls) {
       _controlsTimer = Timer(const Duration(milliseconds: 1500), () {
         if (mounted) {
@@ -91,6 +171,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _resetControlsTimer();
   }
 
+  // FIX(oynatici): İki GestureDetector'da birebir kopyalanan 2X mantığı tek
+  // yere alındı; kopya kaldığı sürece iptal düzeltmesinin bir tarafta
+  // unutulması kaçınılmazdı.
+  void _startHold2X() {
+    final c = _controller;
+    if (c == null || !_isInitialized) return;
+    setState(() {
+      _isHolding2X = true;
+    });
+    c.setPlaybackSpeed(2.0);
+  }
+
+  /// Basılı tutma bittiğinde ya da iptal edildiğinde normal hıza döner.
+  ///
+  /// NEDEN: Sistem işaretçiyi iptal ettiğinde (bildirim gölgesi aşağı çekilir,
+  /// ekran bölme, gelen çağrı) onLongPressEnd hiç çağrılmıyor; video 2.0x
+  /// hızda kilitli kalıyor ve rozet ekrandan gitmiyordu.
+  void _endHold2X() {
+    if (!_isHolding2X) return;
+    setState(() {
+      _isHolding2X = false;
+    });
+    _controller?.setPlaybackSpeed(_baseSpeed);
+  }
+
   VideoItem get currentVideo =>
       (_playlist.isNotEmpty && _currentIndex < _playlist.length)
           ? _playlist[_currentIndex]
@@ -99,6 +204,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    // FIX(oynatici): Uygulama arka plana alındığında sesi durdurabilmek için
+    // yaşam döngüsünü dinle.
+    WidgetsBinding.instance.addObserver(this);
     _playlist = (widget.playlist != null && widget.playlist!.isNotEmpty)
         ? List.from(widget.playlist!)
         : [widget.video];
@@ -115,6 +223,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _loadAndPlayCurrentVideo();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // FIX(oynatici): Uygulama arka plana alındığında video sesi çalmaya devam
+    // ediyordu: kullanıcı başka uygulamada müzik açtığında iki ses üst üste
+    // biniyor, ekran kapalıyken de video sessizce oynayıp pili tüketiyordu.
+    // Duraklatmadan önce konumu kaydediyoruz ki süreç arka planda öldürülürse
+    // kaldığı yer kaybolmasın. Geri dönüşte bilinçli olarak kendiliğinden
+    // devam ettirmiyoruz: oynatmayı yeniden başlatma kararı kullanıcının.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _endHold2X();
+      final c = _controller;
+      if (c != null && _isInitialized && c.value.isPlaying) {
+        _saveCurrentPosition();
+        c.pause();
+        // Kontroller açıksa oynat/duraklat ikonu eski hâlde kalmasın.
+        setState(() {});
+      }
+    }
+  }
+
   Future<void> _loadAndPlayCurrentVideo() async {
     // FIX(leak): Her çağrı yeni bir nesil üretir; yalnızca en güncel nesil
     // controller'ı atayabilir. Eski nesil (hızlı Sonraki/Önceki ya da geri
@@ -127,6 +256,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _subtitleCues = [];
     _currentSubtitleText = '';
     _lastSavedPosMs = 0;
+    _dragValueMs = null;
+    // FIX(oynatici): Yeni video kontroller açık başlasın ve önceki videodan
+    // kalan gizleme zamanlayıcısı onları hemen kapatmasın. Silinmiş bir
+    // dosyaya geçildiğinde hata ekranında geri oku bile kalmıyordu.
+    _showControls = true;
+    _controlsTimer?.cancel();
 
     if (mounted) setState(() {});
 
@@ -195,9 +330,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       // FIX(screen): Oynatma sırasında ekranın kapanmasını engelle.
       await WakelockPlus.enable();
 
-      await _loadSubtitlesFor(vid);
-      
-      _resetControlsTimer();
+      await _loadSubtitlesFor(vid, generation);
+
+      // FIX(oynatici): Altyazı okuması await içerdiği için burada artık eski
+      // nesil olabiliriz; kullanıcı bu sırada Sonraki'ye bastıysa yeni videonun
+      // zamanlayıcısını ezmemeliyiz.
+      if (mounted && generation == _loadGeneration) {
+        _resetControlsTimer();
+      }
     } catch (e) {
       // FIX(leak): Controller oluşturuldu ama _controller'a atanamadan hata
       // oluştuysa burada dispose et (ör. initialize() fırlattı).
@@ -214,25 +354,46 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final c = _controller;
     if (!mounted || !_isInitialized || c == null) return;
 
+    // FIX(oynatici): Oynatma sırasında oluşan platform hataları hiç
+    // okunmuyordu. 45. dakikada bozuk parçaya denk gelen kullanıcı donmuş bir
+    // ekranla kalıyor, üstelik value sıfırlandığı için aşağıdaki kayıt dalı
+    // savePosition(id, 0) çağırıp kaldığı yer bilgisini siliyordu.
+    if (c.value.hasError) {
+      _controlsTimer?.cancel();
+      if (_error == null) {
+        setState(() {
+          _showControls = true;
+          _error = PlayerLogic.playbackErrorMessage(c.value.errorDescription);
+        });
+      }
+      return;
+    }
+
     final posMs = c.value.position.inMilliseconds;
     final durMs = c.value.duration.inMilliseconds;
 
     // FIX(progress): Pozisyon değişince ekranı güncelle — eski kodda yalnızca
     // altyazı değişiminde setState vardı; altyazı kapalıyken ilerleme çubuğu
     // ve süre etiketi hiç ilerlemiyordu.
-    if ((posMs - _lastRenderedPosMs).abs() >= 250) {
+    if (PlayerLogic.shouldRebuildForTick(
+      controlsVisible: _showControls,
+      subtitlesVisible: _showSubtitles && _subtitleCues.isNotEmpty,
+      positionMs: posMs,
+      lastRenderedPosMs: _lastRenderedPosMs,
+    )) {
       _lastRenderedPosMs = posMs;
       setState(() {});
     }
 
     // Periyodik olarak pozisyonu kaydet
-    if ((posMs - _lastSavedPosMs).abs() > 2000) {
+    final persistMs = PlayerLogic.positionToPersistOnTick(
+      positionMs: posMs,
+      durationMs: durMs,
+      lastSavedPosMs: _lastSavedPosMs,
+    );
+    if (persistMs != null) {
       _lastSavedPosMs = posMs;
-      if (durMs > 0 && posMs >= durMs - 3000) {
-        PlaybackManager.instance.savePosition(currentVideo.id, 0);
-      } else {
-        PlaybackManager.instance.savePosition(currentVideo.id, posMs);
-      }
+      PlaybackManager.instance.savePosition(currentVideo.id, persistMs);
     }
 
     // Video bittiğinde otomatik sıradaki videoya geçiş
@@ -269,7 +430,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  Future<void> _loadSubtitlesFor(VideoItem vid) async {
+  Future<void> _loadSubtitlesFor(VideoItem vid, int generation) async {
     String? path = vid.subtitlePath;
 
     if (path == null || !File(path).existsSync()) {
@@ -296,7 +457,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       try {
         final content = await File(path).readAsString();
         final cues = _parseSubtitleFile(content);
-        if (mounted) {
+        // FIX(oynatici): Büyük bir .vtt okunurken kullanıcı Sonraki'ye basarsa
+        // eski videonun cue'ları yeni videonun üstüne biniyor, CC düğmesi
+        // yanlış videoda beliriyor ve alakasız altyazı çiziliyordu.
+        if (mounted && generation == _loadGeneration) {
           setState(() {
             _subtitleCues = cues;
           });
@@ -434,13 +598,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
         : (targetPos > c.value.duration ? c.value.duration : targetPos);
     c.seekTo(clampedPos);
     _triggerSeekFeedback(seconds > 0 ? '+$seconds sn' : '$seconds sn');
+    // FIX(oynatici): Sarma da bir kullanıcı etkileşimi. Sayaç sıfırlanmadığı
+    // için kontroller tam elin altındayken kayboluyor, art arda sarmak isteyen
+    // kullanıcı her seferinde ekrana yeniden dokunmak zorunda kalıyordu.
+    _resetControlsTimer();
   }
 
   @override
   void dispose() {
     // FIX(screen): Ekran kilidini bırak (oynatıcı kapandı).
     WakelockPlus.disable();
+    WidgetsBinding.instance.removeObserver(this);
     _seekFeedbackTimer?.cancel();
+    // FIX(oynatici): Bekleyen gizleme zamanlayıcısı kapatılmış State'i ve
+    // dolaylı olarak controller'ı 1,5 saniye daha canlı tutuyordu; listede
+    // hızlıca video değiştiren kullanıcıda onlarca bekleyen timer birikiyordu.
+    _controlsTimer?.cancel();
     _saveCurrentPosition();
     final c = _controller;
     if (c != null) {
@@ -455,9 +628,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _baseSpeed = speed;
     });
     _controller?.setPlaybackSpeed(speed);
+    _resetControlsTimer();
   }
 
   void _showSpeedPicker() {
+    // FIX(oynatici): Sheet açıkken sayaç işlemeye devam ettiği için kullanıcı
+    // hız seçerken arkadaki kontroller kayboluyor, sheet kapanınca oynatıcı
+    // çıplak kalıyordu. Sheet kapanana kadar sayacı durdur, sonra yeniden kur.
+    _controlsTimer?.cancel();
     showModalBottomSheet(
       context: context,
       backgroundColor: AmoledTheme.cardDark,
@@ -544,7 +722,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         );
       },
-    );
+    ).whenComplete(() {
+      if (mounted) _resetControlsTimer();
+    });
   }
 
   String _formatDuration(Duration duration) {
@@ -565,7 +745,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return Scaffold(
       backgroundColor: AmoledTheme.pureBlack,
       extendBodyBehindAppBar: true,
-      appBar: _showControls
+      // FIX(oynatici): Hata ve yükleme durumunda da AppBar çizilsin. Kontroller
+      // gizlendikten sonra silinmiş bir videoya geçen kullanıcıda geri oku
+      // kalmıyor, oynatıcıdan çıkmanın uygulama içi yolu tamamen kapanıyordu.
+      appBar: (_showControls || _error != null || !_isInitialized)
           ? AppBar(
               backgroundColor: Colors.black.withValues(alpha: 0.5),
               elevation: 0,
@@ -615,6 +798,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 setState(() {
                   _showSubtitles = !_showSubtitles;
                 });
+                _resetControlsTimer();
                 ScaffoldMessenger.of(context).hideCurrentSnackBar();
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -664,6 +848,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       style: const TextStyle(color: AmoledTheme.pureWhite),
                     ),
                     const SizedBox(height: 16),
+                    // FIX(oynatici): Tek videoluk oynatmada hata ekranında hiç
+                    // eylem yoktu; geçici bir codec veya IO hatasında
+                    // kullanıcının yapabileceği tek şey ekranı terk etmekti.
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF222222),
+                        foregroundColor: AmoledTheme.pureWhite,
+                      ),
+                      onPressed: _loadAndPlayCurrentVideo,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Yeniden Dene'),
+                    ),
+                    const SizedBox(height: 8),
                     if (hasMultiple && _currentIndex < _playlist.length - 1)
                       ElevatedButton.icon(
                         style: ElevatedButton.styleFrom(
@@ -691,7 +888,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ),
 
                       // Çift Dokunma & Basılı Tutma Alanı
-                      Positioned.fill(
+                      // FIX(oynatici): SizedBox.expand, Positioned.fill'in
+                      // yerini aldı. NEDEN: Stack boyutu konumlandırılmamış en
+                      // büyük çocuğa göre belirleniyor. Kontroller gizliyken bu
+                      // katman konumlandırılmış olduğu için Stack videonun
+                      // letterbox alanına kadar küçülüyor, siyah bantlara
+                      // dokunmak hiçbir şey yapmıyordu ve kullanıcı kontrolleri
+                      // geri getiremiyordu. Expand ile dokunma alanı her
+                      // durumda tam ekran.
+                      SizedBox.expand(
                         child: Row(
                           children: [
                             // Sol taraf: Çift dokunma 10s geri
@@ -700,18 +905,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 behavior: HitTestBehavior.translucent,
                                 onDoubleTap: () => _seekRelative(-10),
                                 onTap: _toggleControls,
-                                onLongPressStart: (_) {
-                                  setState(() {
-                                    _isHolding2X = true;
-                                  });
-                                  c.setPlaybackSpeed(2.0);
-                                },
-                                onLongPressEnd: (_) {
-                                  setState(() {
-                                    _isHolding2X = false;
-                                  });
-                                  c.setPlaybackSpeed(_baseSpeed);
-                                },
+                                onLongPressStart: (_) => _startHold2X(),
+                                onLongPressEnd: (_) => _endHold2X(),
+                                // FIX(oynatici): Sistem işaretçiyi iptal
+                                // ettiğinde (PointerCancel) onLongPressEnd hiç
+                                // çağrılmıyor ve video 2.0x hızda kilitli
+                                // kalıyordu. _endHold2X kendi içinde
+                                // _isHolding2X kontrolü yaptığı için basılı
+                                // tutmaya dönüşmeyen normal dokunuşlarda da
+                                // tetiklenmesi zararsız.
+                                onLongPressCancel: _endHold2X,
                               ),
                             ),
                             // Sağ taraf: Çift dokunma 10s ileri
@@ -720,18 +923,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 behavior: HitTestBehavior.translucent,
                                 onDoubleTap: () => _seekRelative(10),
                                 onTap: _toggleControls,
-                                onLongPressStart: (_) {
-                                  setState(() {
-                                    _isHolding2X = true;
-                                  });
-                                  c.setPlaybackSpeed(2.0);
-                                },
-                                onLongPressEnd: (_) {
-                                  setState(() {
-                                    _isHolding2X = false;
-                                  });
-                                  c.setPlaybackSpeed(_baseSpeed);
-                                },
+                                onLongPressStart: (_) => _startHold2X(),
+                                onLongPressEnd: (_) => _endHold2X(),
+                                // FIX(oynatici): Sistem işaretçiyi iptal
+                                // ettiğinde (PointerCancel) onLongPressEnd hiç
+                                // çağrılmıyor ve video 2.0x hızda kilitli
+                                // kalıyordu. _endHold2X kendi içinde
+                                // _isHolding2X kontrolü yaptığı için basılı
+                                // tutmaya dönüşmeyen normal dokunuşlarda da
+                                // tetiklenmesi zararsız.
+                                onLongPressCancel: _endHold2X,
                               ),
                             ),
                           ],
@@ -839,92 +1040,102 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           ),
                         ),
                         // Orta Kontrol Butonları (Önceki, Geri 10s, Oynat/Duraklat, İleri 10s, Sonraki)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            if (hasMultiple) ...[
-                              IconButton(
-                                iconSize: 32,
-                                icon: Icon(
-                                  Icons.skip_previous_rounded,
-                                  color: _currentIndex > 0
-                                      ? AmoledTheme.pureWhite
-                                      : Colors.white24,
+                        // FIX(oynatici): Satır sabit 344 dp genişlikte
+                        // (48+12+52+20+80+20+52+12+48). 320 dp genişliğindeki
+                        // küçük ekranlarda ve büyük sistem yazı tipi ölçeğinde
+                        // taşıyordu: release'de en sağdaki Sonraki butonunun bir
+                        // kısmı ekran dışında kalıyor, dokunma alanı kesiliyordu.
+                        // scaleDown yalnız sığmadığında küçültür, geniş
+                        // ekranlarda hiçbir şeyi değiştirmez.
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              if (hasMultiple) ...[
+                                IconButton(
+                                  iconSize: 32,
+                                  icon: Icon(
+                                    Icons.skip_previous_rounded,
+                                    color: _currentIndex > 0
+                                        ? AmoledTheme.pureWhite
+                                        : Colors.white24,
+                                  ),
+                                  onPressed: _currentIndex > 0
+                                      ? _playPreviousVideo
+                                      : null,
                                 ),
-                                onPressed: _currentIndex > 0
-                                    ? _playPreviousVideo
-                                    : null,
+                                const SizedBox(width: 12),
+                              ],
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.5),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: IconButton(
+                                  iconSize: 36,
+                                  icon: const Icon(Icons.replay_10_rounded,
+                                      color: AmoledTheme.pureWhite),
+                                  onPressed: () => _seekRelative(-10),
+                                ),
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 20),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.6),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: IconButton(
+                                  iconSize: 64,
+                                  icon: Icon(
+                                    c.value.isPlaying
+                                        ? Icons.pause_circle_filled_rounded
+                                        : Icons.play_circle_filled_rounded,
+                                    color: AmoledTheme.pureWhite,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      if (c.value.isPlaying) {
+                                        c.pause();
+                                      } else {
+                                        c.play();
+                                      }
+                                      _resetControlsTimer();
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 20),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.5),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: IconButton(
+                                  iconSize: 36,
+                                  icon: const Icon(Icons.forward_10_rounded,
+                                      color: AmoledTheme.pureWhite),
+                                  onPressed: () => _seekRelative(10),
+                                ),
+                              ),
+                              if (hasMultiple) ...[
+                                const SizedBox(width: 12),
+                                IconButton(
+                                  iconSize: 32,
+                                  icon: Icon(
+                                    Icons.skip_next_rounded,
+                                    color: _currentIndex < _playlist.length - 1
+                                        ? AmoledTheme.pureWhite
+                                        : Colors.white24,
+                                  ),
+                                  onPressed:
+                                      _currentIndex < _playlist.length - 1
+                                          ? _playNextVideo
+                                          : null,
+                                ),
+                              ],
                             ],
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.5),
-                                shape: BoxShape.circle,
-                              ),
-                              child: IconButton(
-                                iconSize: 36,
-                                icon: const Icon(Icons.replay_10_rounded,
-                                    color: AmoledTheme.pureWhite),
-                                onPressed: () => _seekRelative(-10),
-                              ),
-                            ),
-                            const SizedBox(width: 20),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.6),
-                                shape: BoxShape.circle,
-                              ),
-                              child: IconButton(
-                                iconSize: 64,
-                                icon: Icon(
-                                  c.value.isPlaying
-                                      ? Icons.pause_circle_filled_rounded
-                                      : Icons.play_circle_filled_rounded,
-                                  color: AmoledTheme.pureWhite,
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    if (c.value.isPlaying) {
-                                      c.pause();
-                                    } else {
-                                      c.play();
-                                    }
-                                    _resetControlsTimer();
-                                  });
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 20),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.black.withValues(alpha: 0.5),
-                                shape: BoxShape.circle,
-                              ),
-                              child: IconButton(
-                                iconSize: 36,
-                                icon: const Icon(Icons.forward_10_rounded,
-                                    color: AmoledTheme.pureWhite),
-                                onPressed: () => _seekRelative(10),
-                              ),
-                            ),
-                            if (hasMultiple) ...[
-                              const SizedBox(width: 12),
-                              IconButton(
-                                iconSize: 32,
-                                icon: Icon(
-                                  Icons.skip_next_rounded,
-                                  color: _currentIndex < _playlist.length - 1
-                                      ? AmoledTheme.pureWhite
-                                      : Colors.white24,
-                                ),
-                                onPressed:
-                                    _currentIndex < _playlist.length - 1
-                                        ? _playNextVideo
-                                        : null,
-                              ),
-                            ],
-                          ],
+                          ),
                         ),
                         // Alt Süre Çubuğu
                         Positioned(
@@ -967,25 +1178,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                               overlayRadius: 16),
                                     ),
                                     child: Slider(
-                                      value: c.value.position.inMilliseconds
-                                          .toDouble()
-                                          .clamp(
-                                              0.0,
-                                              c.value.duration.inMilliseconds
-                                                  .toDouble()),
+                                      value: PlayerLogic.sliderValueMs(
+                                        dragValueMs: _dragValueMs,
+                                        positionMs:
+                                            c.value.position.inMilliseconds,
+                                        durationMs:
+                                            c.value.duration.inMilliseconds,
+                                      ),
                                       min: 0.0,
                                       max: c.value.duration.inMilliseconds
                                           .toDouble(),
+                                      // FIX(oynatici): Sürükleme boyunca yalnız
+                                      // yerel taslak değer güncellenir. Eski kod
+                                      // her pointer move olayında seekTo atıyor,
+                                      // tek sürüklemede onlarca seek isteği
+                                      // platform kanalına gidiyor ve tutamak
+                                      // parmağın gerisine düşüyordu.
                                       onChanged: (val) {
-                                        c.seekTo(Duration(
-                                            milliseconds: val.toInt()));
-                                        _resetControlsTimer();
+                                        setState(() {
+                                          _dragValueMs = val;
+                                        });
                                       },
-                                      onChangeStart: (_) {
+                                      onChangeStart: (val) {
                                         _controlsTimer?.cancel();
+                                        setState(() {
+                                          _dragValueMs = val;
+                                        });
                                       },
-                                      onChangeEnd: (_) {
-                                        _resetControlsTimer();
+                                      onChangeEnd: (val) {
+                                        final target =
+                                            Duration(milliseconds: val.toInt());
+                                        // Taslak değer, seek gerçekten
+                                        // uygulanana kadar duruyor: erken
+                                        // temizlenirse tutamak bir kare boyunca
+                                        // eski konuma geri sıçrar.
+                                        c.seekTo(target).whenComplete(() {
+                                          if (!mounted) return;
+                                          setState(() {
+                                            _dragValueMs = null;
+                                          });
+                                          _resetControlsTimer();
+                                        });
                                       },
                                     ),
                                   ),

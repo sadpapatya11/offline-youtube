@@ -37,6 +37,41 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   /// videoyu silmek hepsini birden siler.
   static String buildSyncTaskId(int epochMs, int index) => '${epochMs}_jit_$index';
 
+  /// Toplam süre kotası ZATEN dolu mu (eklenecek videonun süresine bakmadan).
+  ///
+  /// Kota kuralı üç ayrı ekleme yolunda satır içi yazıldığı sürece hiçbir test onu
+  /// koruyamıyordu: kapıyı komple açan bir mutasyon tüm paketi yeşil bırakıyordu.
+  /// Kural artık tek yerde tanımlı ve doğrudan test edilebilir.
+  static bool isDurationQuotaFull({
+    required int currentTotalSeconds,
+    required int maxDurationSeconds,
+  }) =>
+      currentTotalSeconds >= maxDurationSeconds;
+
+  /// Süresi [videoSeconds] olan bir video toplam süre kotasına sığıyor mu.
+  ///
+  /// [videoSeconds] sıfır veya negatifse süre BİLİNMİYOR demektir. Bilinmeyen süre
+  /// kapıyı kapatmaz: yoksa süresi okunamayan tek bir video yüzünden ekleme yolu
+  /// tamamen tıkanırdı. Toplu ekleme yollarında bilinmeyen süre yerine
+  /// [effectiveDurationSeconds] tahmini geçilir, çünkü orada "bilinmiyor"u sıfır
+  /// saymak kotayı yüzlerce video boyunca sessizce deler.
+  static bool fitsInDurationQuota({
+    required int currentTotalSeconds,
+    required int videoSeconds,
+    required int maxDurationSeconds,
+  }) {
+    if (videoSeconds <= 0) return true;
+    return currentTotalSeconds + videoSeconds <= maxDurationSeconds;
+  }
+
+  /// Kota hesabında kullanılacak süre.
+  ///
+  /// `--flat-playlist` girdilerin çoğunda süre döndürmez. Bilinmeyen süreyi sıfır
+  /// saymak, oynatma listesi ve eşitleme yollarında kotayı tamamen etkisiz kılar:
+  /// 200 videoluk bir liste "toplam 0 saniye" sayılıp olduğu gibi kuyruğa girer.
+  static int effectiveDurationSeconds(int rawSeconds) =>
+      rawSeconds > 0 ? rawSeconds : defaultVideoDurationSeconds;
+
   /// Eşitleme sırasında bir videonun veya görevin kaldırılıp kaldırılmayacağına karar verir.
   ///
   /// Kritik kural: karar YALNIZ çevrimiçi listesi BAŞARIYLA çekilebilmiş oynatma
@@ -54,10 +89,41 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     return !stillOnline;
   }
 
+  /// Eşitleme turunda çekilemeyen listeler için kullanıcıya gösterilecek uyarı.
+  ///
+  /// Çekim hatası yutulduğunda kullanıcı yalnız "Eşitleme tamamlandı" görüyordu:
+  /// listedeki yeni videolar gelmediğinde bunun ağ kesintisi mi yoksa YouTube'da
+  /// gerçekten değişiklik olmaması mı olduğunu ayırt edemiyordu. Hata sayısı sıfırsa
+  /// `null` döner, böylece başarılı turda mesaj kirliliği olmaz.
+  static String? buildSyncFailureNotice({
+    required int attemptedCount,
+    required int failedCount,
+  }) {
+    if (failedCount <= 0) return null;
+    if (attemptedCount > 0 && failedCount >= attemptedCount) {
+      return 'Hiçbir oynatma listesi çekilemedi (ağ veya YouTube hatası). '
+          'Güvenlik gereği hiçbir video silinmedi.';
+    }
+    return '$attemptedCount listeden $failedCount tanesi çekilemedi. '
+        'Çekilemeyen listelere ait videolar güvenlik gereği silinmedi.';
+  }
+
   final DownloadQueueManager _manager = DownloadQueueManager.instance;
   StreamSubscription? _updateSub;
   bool _disposed = false;
   bool _isSyncingPlaylists = false;
+
+  /// Dispose edilmiş provider'da dinleyici uyarmayı engeller.
+  ///
+  /// [syncSavedPlaylists] onlarca saniye sürebilen ağ turları yapar (her kayıtlı
+  /// liste için yt-dlp çekimi, eksik tarihler için ayrıca metadata). Kullanıcı bu
+  /// sırada uygulamadan çıkarsa veya provider ağacı yeniden kurulursa dispose
+  /// çalışır; ağ işi bittiğinde çıplak notifyListeners "dispose edilmiş nesne
+  /// kullanıldı" hatası fırlatır ve arka plan turu ekranı kırmızıya boyar.
+  void _safeNotify() {
+    if (_disposed) return;
+    notifyListeners();
+  }
 
   List<DownloadTask> get tasks => _manager.tasks;
   bool get isProcessingQueue => _manager.isProcessingQueue;
@@ -66,6 +132,32 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   bool get isWifiWaiting => _manager.isWifiWaiting;
   bool get isLoaded => _manager.isLoaded;
   bool get isSyncingPlaylists => _isSyncingPlaylists;
+
+  /// Kuyruğun neden ilerlemediği; engel yoksa null.
+  ///
+  /// Bu geçit olmadan sinyal ölüydü: [DownloadQueueManager] geçici engelde
+  /// (ağ izni yok, kota ölçülemedi, ön plan servisi reddetti) artık sıradaki
+  /// görevi hataya DÜŞÜRMÜYOR, `queued` bırakıp nedeni `blockReason`'a yazıyor.
+  /// Neden hiçbir ekrana taşınmazsa kuyruk kullanıcıya sebepsiz donmuş görünür:
+  /// eskiden hiç değilse kırmızı bir hata satırı çıkıyordu.
+  String? get blockReason => _manager.blockReason;
+
+  /// Diskten yüklenirken çözülemediği için ATILAN görev sayısı.
+  int get droppedTaskCount => _manager.droppedTaskCount;
+
+  /// Kuyruk kaydının tamamı okunamadıysa true.
+  bool get queueRecordUnreadable => _manager.queueRecordUnreadable;
+
+  /// Kullanıcı açılıştaki kayıp uyarısını gördü; bir daha gösterilmez.
+  ///
+  /// Bayrakları temizlemek yalnız gösterim kararını etkiler, kuyruk verisine
+  /// dokunmaz; yeniden yükleme olduğunda [DownloadQueueManager] ikisini de
+  /// baştan hesaplar.
+  void acknowledgeQueueLoadNotice() {
+    _manager.droppedTaskCount = 0;
+    _manager.queueRecordUnreadable = false;
+    _safeNotify();
+  }
 
   int get queuedCount => _manager.tasks.where((t) => t.status == DownloadStatus.queued).length;
   int get downloadingCount => _manager.tasks.where((t) => t.status == DownloadStatus.downloading).length;
@@ -208,10 +300,14 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       return 'İnternet / DNS bağlantısı kurulamadı. Ağ bağlantısı bekleniyor.';
     }
 
+    // Çıplak contains('bot') KULLANILMAZ: kelime sınırı olmadığı için "Bottom",
+    // "robot", "sabotage" geçen her başlık ve yol bot doğrulaması sanılıyordu.
+    // Bu kontrol listenin başında olduğundan alakasız hatanın gerçek nedeni
+    // ("video unavailable", depolama hatası) hiç görünmüyor ve kullanıcı boşuna
+    // yt-dlp motorunu güncellemeye yönlendiriliyordu.
     if (result.toLowerCase().contains('sign in to confirm') ||
-        result.toLowerCase().contains('confirms you\'re not a bot') ||
-        result.toLowerCase().contains('botguard') ||
-        result.toLowerCase().contains('bot')) {
+        result.toLowerCase().contains('not a bot') ||
+        result.toLowerCase().contains('botguard')) {
       return 'YouTube bot doğrulaması istedi. Ayarlardan yt-dlp motorunu güncelleyin.';
     }
 
@@ -276,7 +372,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     final downloadedVideos = await StorageManager.instance.scanDownloadedVideos();
     final currentTotalSec = downloadedVideos.fold<int>(0, (sum, v) => sum + (v.durationSeconds ?? 0));
     final maxDurationSec = settings.maxVideoDurationHours * 3600;
-    if (currentTotalSec >= maxDurationSec) {
+    if (isDurationQuotaFull(
+      currentTotalSeconds: currentTotalSec,
+      maxDurationSeconds: maxDurationSec,
+    )) {
       return 'Mevcut indirmeler belirlenen toplam süre kotasını (${settings.maxVideoDurationHours} Saat) doldurmuş durumda. Lütfen video silin veya süreyi artırın.';
     }
 
@@ -333,7 +432,11 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
       final currentTotalSec = downloadedVideos.fold<int>(0, (sum, v) => sum + (v.durationSeconds ?? 0));
       final maxDurationSec = settings.maxVideoDurationHours * 3600;
 
-      if (duration > 0 && (currentTotalSec + duration) > maxDurationSec) {
+      if (!fitsInDurationQuota(
+        currentTotalSeconds: currentTotalSec,
+        videoSeconds: duration,
+        maxDurationSeconds: maxDurationSec,
+      )) {
         _manager.tasks.removeWhere((t) => t.id == task.id);
         final totalHours = ((currentTotalSec + duration) / 3600).toStringAsFixed(1);
         _manager.saveTasksToStorage();
@@ -399,8 +502,13 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   PlaylistEntry? _normalizePlaylistEntry(Map<String, dynamic> raw, int index, List<VideoItem> downloadedVideos) {
-    final videoUrl = (raw['url'] as String? ?? '').trim();
-    if (videoUrl.isEmpty || videoUrl.toLowerCase() == 'null') return null;
+    // Ham URL doğrudan kuyruğa ve oradan yt-dlp argümanına giriyordu. Liste
+    // çıktısındaki bozuk bir değer (boş, "null", göreli yol, YouTube olmayan alan
+    // adı, çıplak video kimliği) ancak indirme anında hata veriyor; kullanıcı
+    // listede neden indirilemeyen bir satır olduğunu göremiyordu. Kaynağında
+    // normalize edip doğrula, doğrulanamayanı listeye hiç alma.
+    final videoUrl = extractYouTubeUrl((raw['url'] as String? ?? '').trim()) ?? '';
+    if (videoUrl.isEmpty) return null;
 
     var title = (raw['title'] as String? ?? '').trim();
     final lowerTitle = title.toLowerCase();
@@ -457,9 +565,13 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
     for (var i = 0; i < entries.length; i++) {
       final entry = entries[i];
-      final effectiveDuration = entry.hasDuration ? entry.durationSeconds : defaultVideoDurationSeconds;
+      final effectiveDuration = effectiveDurationSeconds(entry.durationSeconds);
 
-      if ((runningTotalSec + effectiveDuration) > maxDurationSec) {
+      if (!fitsInDurationQuota(
+        currentTotalSeconds: runningTotalSec,
+        videoSeconds: effectiveDuration,
+        maxDurationSeconds: maxDurationSec,
+      )) {
         skippedCount++;
         continue;
       }
@@ -515,12 +627,17 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (settings.savedPlaylists.isEmpty) return const PlaylistSyncResult(success: false, message: 'Kayitli oynatma listesi bulunamadi');
 
     _isSyncingPlaylists = true;
-    notifyListeners();
+    _safeNotify();
 
     int trashedCount = 0;
     int queueDeletedCount = 0;
     int addedCount = 0;
     bool anyPlaylistSucceeded = false;
+    int attemptedPlaylistCount = 0;
+    // Çekilemeyen listeler sessizce yutulamaz: kullanıcı hangi listenin
+    // eşitlenemediğini bilmezse, eksik kalan videoların YouTube'dan mı silindiğini
+    // yoksa ağın mı koptuğunu ayırt edemez.
+    int failedPlaylistCount = 0;
 
     try {
       final downloadedVideos = await StorageManager.instance.scanDownloadedVideos();
@@ -534,6 +651,7 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       for (final playlistUrl in settings.savedPlaylists) {
         if (playlistUrl.trim().isEmpty) continue;
+        attemptedPlaylistCount++;
         try {
           final pid = Uri.tryParse(playlistUrl)?.queryParameters['list'];
           Map<String, DateTime>? apiDates;
@@ -571,7 +689,10 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
               orderedNewEntries.add(newEntry);
             }
           }
-        } catch (_) {}
+        } catch (e) {
+          failedPlaylistCount++;
+          debugPrint('syncSavedPlaylists: liste çekilemedi ($playlistUrl): $e');
+        }
       }
 
       for (final video in downloadedVideos) {
@@ -640,7 +761,19 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         var uploader = (entry['uploader'] as String? ?? '').trim();
 
         if (videoUrl.isEmpty || videoUrl.toLowerCase() == 'null') continue;
-        if (duration > 0 && (runningTotalSec + duration) > maxDurationSec) continue;
+        // Süresi bilinmeyen girdi kotadan MUAF DEĞİLDİR. `--flat-playlist` çoğu
+        // girdide süre döndürmediğinden ham süreyi kullanmak kotayı tamamen
+        // etkisiz kılıyordu: 10 saatlik sınır konmuş olsa bile eşitleme yüzlerce
+        // videoyu "toplam 0 saniye" sayıp kuyruğa döküyordu. Toplu ekleme
+        // (addSelectedEntries) ile aynı kural uygulanır.
+        final effectiveDuration = effectiveDurationSeconds(duration);
+        if (!fitsInDurationQuota(
+          currentTotalSeconds: runningTotalSec,
+          videoSeconds: effectiveDuration,
+          maxDurationSeconds: maxDurationSec,
+        )) {
+          continue;
+        }
 
         if (title.isEmpty || title.toLowerCase() == 'null') {
           final vid = VideoItem.extractVideoId(videoUrl);
@@ -654,8 +787,9 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         });
         if (isAlreadyInQueueFinal) continue;
 
-        runningTotalSec += duration;
-        final taskId = buildSyncTaskId(syncEpochMs, syncTaskIndex++);
+        runningTotalSec += effectiveDuration;
+        final taskIndex = syncTaskIndex++;
+        final taskId = buildSyncTaskId(syncEpochMs, taskIndex);
         final entrySourcePlaylist = (entry['_sourcePlaylistUrl'] as String? ?? '').trim();
         final newTask = DownloadTask(
           id: taskId,
@@ -669,7 +803,11 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
           sourcePlaylistUrl: entrySourcePlaylist.isNotEmpty ? entrySourcePlaylist : null,
         );
 
-        _manager.tasks.insert(0, newTask);
+        // insert(0) DEĞİL: her görevi 0. indekse koymak, yukarıda yeniden eskiye
+        // sıralanan listeyi tam tersine çeviriyordu; en eski video kuyruğun başına
+        // geçiyor ve sıralamanın amacı sessizce iptal oluyordu. Artan indekse
+        // eklemek hem sıralamayı korur hem de eşitleme partisini blok hâlinde tutar.
+        _manager.tasks.insert(taskIndex, newTask);
         addedCount++;
       }
 
@@ -683,12 +821,16 @@ class DownloadProvider extends ChangeNotifier with WidgetsBindingObserver {
         success: anyPlaylistSucceeded,
         newVideosAdded: addedCount,
         deletedVideosRemoved: trashedCount + queueDeletedCount,
+        message: buildSyncFailureNotice(
+          attemptedCount: attemptedPlaylistCount,
+          failedCount: failedPlaylistCount,
+        ),
       );
     } catch (e) {
       return PlaylistSyncResult(success: false, message: e.toString());
     } finally {
       _isSyncingPlaylists = false;
-      notifyListeners();
+      _safeNotify();
     }
   }
 }

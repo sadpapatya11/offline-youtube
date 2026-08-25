@@ -39,13 +39,15 @@ class LibraryProvider extends ChangeNotifier {
       notifyListeners();
     }
 
-    // 24 saati geçmiş çöpleri otomatik temizle
-    final purged = await StorageManager.instance.purgeExpiredTrash();
-    // Silinenleri API kuyruğuna ekle
-    for (final t in purged) {
+    // 24 saati geçmiş çöpleri otomatik temizle.
+    // YALNIZ gerçekten kalıcı silinenler (purged) YouTube kuyruğuna girer; çöpte
+    // duran kayıtlar (remaining) kullanıcı tarafından geri alınabilir olduğu için
+    // YouTube hesabına dokunulmaz.
+    final purgeResult = await StorageManager.instance.purgeExpiredTrash();
+    for (final t in purgeResult.purged) {
       YoutubeApiService().enqueueDeletion(t.video.playlistUrl, t.video.youtubeId);
     }
-    
+
     // Geriye kalan (süresi dolmamış) çöpleri yükle
     _trashedVideos = await StorageManager.instance.loadTrashIndex();
     _videos = await StorageManager.instance.scanDownloadedVideos();
@@ -81,11 +83,11 @@ class LibraryProvider extends ChangeNotifier {
   Future<bool> deleteVideo(VideoItem item) async {
     final success = await StorageManager.instance.moveToTrash(item);
     if (success) {
-      // Geri dnǬYǬme (pe) atldY anda YouTube Oynatma Listesinden de sil!
-      if (item.playlistUrl != null && item.youtubeId != null) {
-        YoutubeApiService().enqueueDeletion(item.playlistUrl, item.youtubeId);
-      }
-      
+      // YouTube oynatma listesinden kaldırma burada TETİKLENMEZ.
+      // Çöpe atmak geri alınabilir bir işlemdir, YouTube tarafında silme ise değildir
+      // (repoda playlistItems.insert yok, yani geri koyma yolu hiç yazılmadı).
+      // Silme yalnız kalıcı silme anında yapılır: deletePermanently, emptyTrash ve
+      // refresh içindeki purged listesi.
       _videos.removeWhere((v) => v.id == item.id);
       _trashedVideos = await StorageManager.instance.loadTrashIndex();
       _totalUsedBytes = await StorageManager.instance.getUsedStorageBytes();
@@ -111,9 +113,7 @@ class LibraryProvider extends ChangeNotifier {
       if (match != null) {
         final ok = await StorageManager.instance.moveToTrash(match);
         if (ok) {
-          if (match.playlistUrl != null && match.youtubeId != null) {
-            YoutubeApiService().enqueueDeletion(match.playlistUrl, match.youtubeId);
-          }
+          // Toplu çöpe atmada da YouTube tarafına dokunulmaz; gerekçe deleteVideo ile aynı.
           _videos.removeWhere((v) => v.id == id);
           deletedCount++;
         }

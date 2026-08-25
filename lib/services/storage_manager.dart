@@ -7,6 +7,19 @@ import '../models/video_item.dart';
 import 'native_bridge.dart';
 import 'playback_manager.dart';
 
+/// [StorageManager.purgeExpiredTrash] sonucu.
+///
+/// İki listeyi AYRI tutmak zorunludur: [purged] gerçekten kalıcı olarak silinenler,
+/// [remaining] ise çöpte duran ve kullanıcının hâlâ geri alabileceği kayıtlar.
+/// Tek liste döndürmek, çağıranın yanlış kümeyi YouTube silme kuyruğuna vermesine
+/// yol açıyordu (2026-08-25 denetimi).
+class TrashPurgeResult {
+  final List<TrashedVideoItem> purged;
+  final List<TrashedVideoItem> remaining;
+
+  const TrashPurgeResult({required this.purged, required this.remaining});
+}
+
 class StorageManager {
   static final StorageManager instance = StorageManager._internal();
   StorageManager._internal();
@@ -399,17 +412,11 @@ class StorageManager {
 
       await srcFile.rename(destFilePath);
 
-      final trashedVideo = VideoItem(
-        id: item.id,
-        title: item.title,
+      // playlistUrl ve uploadDate dahil TÜM üstveri korunur; kalıcı silme anında
+      // YouTube oynatma listesinden kaldırma bu alanlara bağlı (bkz. copyForTrash).
+      final trashedVideo = item.copyForTrash(
         filePath: destFilePath,
-        fileSizeBytes: item.fileSizeBytes,
-        durationSeconds: item.durationSeconds,
-        uploader: item.uploader,
-        downloadedAt: item.downloadedAt,
         thumbnailPath: destThumbPath,
-        subtitlePath: item.subtitlePath,
-        sourceUrl: item.sourceUrl,
       );
 
       final currentTrash = await loadTrashIndex();
@@ -469,10 +476,11 @@ class StorageManager {
   }
 
   /// 24 saati (86400 saniye) dolduran çöpleri diskten kalıcı olarak temizler
-  Future<List<TrashedVideoItem>> purgeExpiredTrash() async {
+  Future<TrashPurgeResult> purgeExpiredTrash() async {
     try {
       final currentTrash = await loadTrashIndex();
       final List<TrashedVideoItem> activeTrash = [];
+      final List<TrashedVideoItem> purged = [];
 
       for (final item in currentTrash) {
         if (item.isExpired) {
@@ -488,6 +496,7 @@ class StorageManager {
             }
             PlaybackManager.instance.clearPosition(item.video.id);
           } catch (_) {}
+          purged.add(item);
         } else {
           // Dosya gerçekten mevcutsa aktif çöp listesinde tut
           if (File(item.video.filePath).existsSync()) {
@@ -497,12 +506,21 @@ class StorageManager {
       }
 
       await _saveTrashIndex(activeTrash);
-      return activeTrash;
+      return TrashPurgeResult(purged: purged, remaining: activeTrash);
     } catch (e, s) {
       debugPrint('ERROR in purgeExpiredTrash: $e\n$s');
-      return [];
+      return const TrashPurgeResult(purged: [], remaining: []);
     }
   }
+
+  /// Süresi dolmuş çöp kayıtlarını ayırır.
+  ///
+  /// Ayrı ve saf bir metot olmasının nedeni: "hangi videolar kullanıcının YouTube
+  /// oynatma listesinden kaldırılacak" kararı buradan çıkar ve test edilebilir olmak
+  /// zorundadır. Süresi dolmamış bir kaydın bu listeye sızması, kullanıcının hâlâ
+  /// geri alabileceği bir videoyu YouTube hesabından geri alınamaz biçimde siler.
+  static List<TrashedVideoItem> expiredOnly(List<TrashedVideoItem> items) =>
+      items.where((t) => t.isExpired).toList();
 
   /// Belirli bir videoyu Geri Dönüşüm Kutusundan kalıcı olarak siler
   Future<bool> permanentlyDelete(TrashedVideoItem trashed) async {

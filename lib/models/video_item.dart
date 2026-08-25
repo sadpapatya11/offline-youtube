@@ -31,6 +31,30 @@ class VideoItem {
 
   bool get exists => File(filePath).existsSync();
 
+  /// Video çöp kutusuna taşınırken kullanılan kopya: yalnız dosya yolları değişir,
+  /// üstverinin tamamı korunur.
+  ///
+  /// [playlistUrl] ve [sourceUrl] burada MUTLAKA taşınır: kalıcı silme anında
+  /// videoyu kullanıcının YouTube oynatma listesinden kaldırma kararı bu iki alana
+  /// bağlıdır ([youtubeId] sourceUrl üzerinden türer). Alanlar düşerse silme isteği
+  /// sessizce erken döner ve kullanıcıya verilen söz yerine gelmez.
+  VideoItem copyForTrash({required String filePath, String? thumbnailPath}) {
+    return VideoItem(
+      id: id,
+      title: title,
+      filePath: filePath,
+      fileSizeBytes: fileSizeBytes,
+      durationSeconds: durationSeconds,
+      uploader: uploader,
+      downloadedAt: downloadedAt,
+      thumbnailPath: thumbnailPath,
+      subtitlePath: subtitlePath,
+      sourceUrl: sourceUrl,
+      playlistUrl: playlistUrl,
+      uploadDate: uploadDate,
+    );
+  }
+
   static String? extractVideoId(String? url) {
     if (url == null || url.isEmpty) return null;
     final regExp =

@@ -104,27 +104,11 @@ class _HomeScreenState extends State<HomeScreen> {
               backgroundColor: const Color(0xFF330000),
             );
           } else {
-            // FIX(playlist-secim): Liste artık ne sessizce kuyruğa dökülüyor ne de
-            // tek videoya indirgeniyor. Eski davranışta 100 videoluk bir listeden
-            // yalnız 1 tanesi iniyordu ve kalan 99'u almanın tek yolu aynı düğmeye
-            // 99 kez basmaktı; seçim ekranı ise derlemede ölü kod olarak duruyordu.
-            final selected = await Navigator.of(context).push<List<PlaylistEntry>>(
-              MaterialPageRoute(
-                builder: (_) => PlaylistSelectionScreen(result: result),
-              ),
-            );
+            // Kullanıcı her seferinde seçmekle uğraşmak istemediği için
+            // listedeki tüm videoları doğrudan kuyruğa ekliyoruz.
+            final selected = result.entries;
 
             if (!mounted) return;
-
-            if (selected == null || selected.isEmpty) {
-              // İptal sessiz geçilmez: kullanıcı kuyruğa bir şey eklendiğini sanmasın.
-              SnackbarHelper.showTop(
-                context,
-                'Video seçilmedi, kuyruğa hiçbir şey eklenmedi.',
-                backgroundColor: const Color(0xFF330000),
-              );
-              return;
-            }
 
             final addError = await downloadProvider.addSelectedEntries(
               entries: selected,

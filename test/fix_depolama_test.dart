@@ -76,7 +76,7 @@ void main() {
         StorageManager.rebaseToDirectory(
           '/storage/emulated/0/Download/.offlineyoutube/.trash/Video [abc].mp4',
           '/depo/.movies/.trash',
-        ),
+        ).replaceAll('\\', '/'),
         '/depo/.movies/.trash/Video [abc].mp4',
       );
     });

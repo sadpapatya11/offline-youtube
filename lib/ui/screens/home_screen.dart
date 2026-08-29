@@ -104,13 +104,14 @@ class _HomeScreenState extends State<HomeScreen> {
               backgroundColor: const Color(0xFF330000),
             );
           } else {
-            // Kullanıcı her seferinde seçmekle uğraşmak istemediği için
-            // listedeki tüm videoları doğrudan kuyruğa ekliyoruz.
-            final selected = result.entries;
+            final selected = await Navigator.push<List<PlaylistEntry>>(
+              context,
+              MaterialPageRoute(builder: (_) => PlaylistSelectionScreen(result: result)),
+            );
+            if (selected != null && selected.isNotEmpty) {
+              if (!mounted) return;
 
-            if (!mounted) return;
-
-            final addError = await downloadProvider.addSelectedEntries(
+              final addError = await downloadProvider.addSelectedEntries(
               entries: selected,
               settings: settingsProvider.settings,
               sourcePlaylistUrl: cleanUrl,
@@ -139,6 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onPressed: widget.onNavigateToQueue,
                 ),
               );
+            }
             }
           }
         }

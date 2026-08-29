@@ -18,7 +18,7 @@ class AppSettings {
 
   const AppSettings({
     this.maxStorageLimitGB = 20,
-    this.maxVideoDurationHours = 10000,
+    this.maxVideoDurationHours = 6,
     this.networkMode = NetworkRestrictionMode.anyWifi, // Varsaylan Sadece Wi-Fi
     this.customDownloadPath = StorageManager.defaultHiddenPath,
     this.autoDownloadOnPaste = true,

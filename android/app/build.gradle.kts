@@ -98,8 +98,6 @@ android {
                     keyAlias = releaseProps.getProperty("keyAlias")
                     keyPassword = releaseProps.getProperty("keyPassword")
                 }
-            } else {
-                throw GradleException("Release build için keystore.properties gerekli")
             }
             isMinifyEnabled = true
             isShrinkResources = true
